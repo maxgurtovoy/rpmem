@@ -34,10 +34,13 @@
 #define RPMEM_H
 
 #include <string.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <signal.h>
 #include <unistd.h>
 
+#include <sys/queue.h>
 #include <infiniband/verbs.h>
 #include <rdma/rdma_cma.h>
 #include <rdma/rdma_verbs.h>
@@ -75,6 +78,8 @@ struct mlx_rpmem_file {
 
 	enum file_state         	state;
 	pthread_mutex_t 		state_mutex;
+
+	SLIST_ENTRY(mlx_rpmem_file)	entry;
 	/* information of remote persistance */
 	//struct list_head		rmap_list;
 	//int				nrmaps;

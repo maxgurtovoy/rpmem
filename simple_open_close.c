@@ -107,10 +107,10 @@ main(int argc, char *argv[])
 	}
 
 	/* close dst-file in remote server */
-	/*if (!rpmem_close(rfile)) {
+	if (rpmem_close(rfile)) {
 		perror("rpmem_close");
 		exit(1);
-	}*/
+	}
 
 	exit(0);
 }

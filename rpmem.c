@@ -33,6 +33,14 @@
 
 #include "rpmem.h"
 
+/*---------------------------------------------------------------------------*/
+/* globals								     */
+/*---------------------------------------------------------------------------*/
+static SLIST_HEAD(, mlx_rpmem_file) file_list =
+	SLIST_HEAD_INITIALIZER(file_list);
+
+pthread_mutex_t file_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static void rpmem_handle_wc(struct ibv_wc *wc,
 			    struct mlx_rpmem_file *mlx_rfile)
 {
@@ -71,8 +79,6 @@ static void *cq_thread(void *arg)
         int ret;
 
         while (1) {
-                pthread_testcancel();
-
                 ret = ibv_get_cq_event(mlx_rfile->comp_channel, &ev_cq, &ev_ctx);
                 if (ret) {
                         perror("Failed to get cq event!");
@@ -175,8 +181,8 @@ static int rpmem_route_handler(struct rdma_cm_id *cma_id)
         init_attr.qp_context  = (void *) mlx_rfile->cma_id->context;
         init_attr.send_cq     = mlx_rfile->cq;
         init_attr.recv_cq     = mlx_rfile->cq;
-        init_attr.cap.max_send_wr  = 16;
-        init_attr.cap.max_recv_wr  = 16;
+        init_attr.cap.max_send_wr  = 4;
+        init_attr.cap.max_recv_wr  = 4;
         init_attr.cap.max_send_sge = 2;
         init_attr.cap.max_recv_sge = 1;
         init_attr.qp_type     = IBV_QPT_RC;
@@ -259,7 +265,6 @@ static void *cm_thread(void *arg)
 {
 	struct mlx_rpmem_file *mlx_rfile = arg;
         struct rdma_cm_event *event;
-        struct rdma_cm_event event_copy;
         int ret;
 
         while (1) {
@@ -268,9 +273,7 @@ static void *cm_thread(void *arg)
 			perror("Failed to get RDMA-CM Event");
 			pthread_exit(NULL);
 		}
-		printf("rfile %p event %p\n", mlx_rfile, event);
-             	memcpy(&event_copy, event, sizeof(struct rdma_cm_event));
-		ret = rpmem_cma_handler(mlx_rfile->cma_id, &event_copy);
+		ret = rpmem_cma_handler(mlx_rfile->cma_id, event);
 		if (ret) {
 			perror("Failed to handle event");
 			pthread_exit(NULL);
@@ -302,14 +305,10 @@ rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags)
 		goto destroy_rfile;
 	}
 
-	printf("rfile %p after rdma_create_event_channel\n", mlx_rfile);
-
 	if (rdma_create_id(mlx_rfile->cma_channel, &mlx_rfile->cma_id, mlx_rfile, RDMA_PS_TCP)) {
 		perror("rdma_create_id");
 		goto destroy_event_channel;
 	}
-
-	printf("rfile %p after rdma_create_id cma_ctx %p\n", mlx_rfile, mlx_rfile->cma_id->context);
 
 	ret = pthread_create(&mlx_rfile->cmthread, NULL, cm_thread, mlx_rfile);
 	if (ret) {
@@ -317,18 +316,12 @@ rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags)
 		goto destroy_id;
 	}
 
-	printf("rfile %p after cm pthread_create cma_ctx %p\n", mlx_rfile, mlx_rfile->cma_id->context);
-
 	if (rdma_resolve_addr(mlx_rfile->cma_id, NULL, dst_addr, 2000)) {
 		perror("rdma_resolve_addr");
 		goto destroy_thread;
 	}
 
-	printf("rfile %p rdma_resolve_addr cma_ctx %p\n", mlx_rfile, mlx_rfile->cma_id->context);
-
 	sem_wait(&mlx_rfile->sem_connect);
-
-	printf("rfile %p sem_wait cma_ctx %p\n", mlx_rfile, mlx_rfile->cma_id->context);
 
 	pthread_mutex_lock(&mlx_rfile->state_mutex);
 	if (mlx_rfile->state != RPMEM_ESTABLISHED) {
@@ -345,6 +338,10 @@ rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags)
 		goto destroy_thread;
 	}
 
+	pthread_mutex_lock(&file_list_mutex);
+	SLIST_INSERT_HEAD(&file_list, mlx_rfile, entry);
+	pthread_mutex_unlock(&file_list_mutex);
+
 	return rfile;
 
 destroy_thread:
@@ -354,8 +351,44 @@ destroy_id:
 destroy_event_channel:
 	rdma_destroy_event_channel(mlx_rfile->cma_channel);
 destroy_rfile:
+	sem_destroy(&mlx_rfile->sem_connect);
+	pthread_mutex_destroy(&mlx_rfile->state_mutex);
 	free(mlx_rfile);
 
 	return NULL;
+}
+
+int rpmem_close(struct rpmem_file *rfile)
+{
+	struct mlx_rpmem_file *mlx_rfile = container_of(rfile, struct mlx_rpmem_file, rfile);
+
+	pthread_mutex_lock(&file_list_mutex);
+	SLIST_REMOVE(&file_list,
+                     mlx_rfile,
+                     mlx_rpmem_file,
+                     entry);
+	pthread_mutex_unlock(&file_list_mutex);
+
+	free(rfile->rfilepath);
+
+	/* Destroy cm stuff */
+	pthread_cancel(mlx_rfile->cmthread);
+	rdma_disconnect(mlx_rfile->cma_id);
+	ibv_destroy_qp(mlx_rfile->qp);
+	rdma_destroy_id(mlx_rfile->cma_id);
+	rdma_destroy_event_channel(mlx_rfile->cma_channel);
+
+	/* Destroy cq stuff */
+	pthread_cancel(mlx_rfile->cqthread);
+        ibv_destroy_cq(mlx_rfile->cq);
+	ibv_destroy_comp_channel(mlx_rfile->comp_channel);
+	ibv_dealloc_pd(mlx_rfile->pd);
+
+	/* Destroy mlx_rfile stuff */
+	sem_destroy(&mlx_rfile->sem_connect);
+	pthread_mutex_destroy(&mlx_rfile->state_mutex);
+	free(mlx_rfile);
+
+	return 0;
 }
 
