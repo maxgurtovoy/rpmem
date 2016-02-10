@@ -40,11 +40,7 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include <sys/queue.h>
-#include <infiniband/verbs.h>
-#include <rdma/rdma_cma.h>
-#include <rdma/rdma_verbs.h>
-
+#include "rpmem_common.h"
 
 enum file_state {
 	RPMEM_INIT,
@@ -62,24 +58,15 @@ struct rpmem_file {
 struct mlx_rpmem_file {
 	struct rpmem_file		rfile;
 
-	struct rdma_cm_id		*cma_id;
+	struct rpmem_conn		conn;
 	struct rdma_event_channel	*cma_channel;
-
-	struct ibv_device		*ib_device;
-	struct ibv_device_attr        	dev_attr;
-	struct ibv_pd                	*pd;
-	struct ibv_cq                	*cq;
-	struct ibv_qp                	*qp;
-	struct ibv_comp_channel      	*comp_channel;
 
 	sem_t	                        sem_connect;
 	pthread_t	                cmthread;
-	pthread_t	                cqthread;
 
 	enum file_state         	state;
 	pthread_mutex_t 		state_mutex;
 
-	SLIST_ENTRY(mlx_rpmem_file)	entry;
 	/* information of remote persistance */
 	//struct list_head		rmap_list;
 	//int				nrmaps;

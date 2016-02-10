@@ -42,12 +42,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/queue.h>
 #include <arpa/inet.h>
 
-#include <infiniband/verbs.h>
-#include <rdma/rdma_cma.h>
-#include <rdma/rdma_verbs.h>
+#include "rpmem_common.h"
 
 struct inargs {
         char    *server_addr;
@@ -55,24 +52,12 @@ struct inargs {
 };
 
 /*
- * conn struct.
+ * unit struct.
  */
-struct rpmem_conn {
+struct rpmem_server_unit {
 	struct rpmem_server		*server;
 
-	/* for server  */
-	SLIST_ENTRY(rpmem_conn)		entry;
-
-	struct rdma_cm_id 		*cma_id;
-
-	struct ibv_device		*ib_device;
-	struct ibv_device_attr        	dev_attr;
-	struct ibv_pd                	*pd;
-	struct ibv_cq                	*cq;
-	struct ibv_qp                	*qp;
-	struct ibv_comp_channel      	*comp_channel;
-
-	pthread_t	                cqthread;
+	struct rpmem_conn		conn;
 };
 
 /*
@@ -92,30 +77,6 @@ struct rpmem_server {
 
 };
 
-/*static int run_server(struct inargs *in)
-{
-        struct server_context *ctx;
-        int err = 0;
-        int i;
-
-        ctx = alloc_server_ctx(in);
-        if (!ctx)
-                return -ENOMEM;
-
-        sem_wait(&ctx->sem);
-
-        for (i = 0; i < ctx->nch; i++)
-                lseek(ctx->ch[i].fd, 0, SEEK_SET);
-
-        server_send_back(ctx, in);
-
-        info_log("done sending data back\n");
-
-        close_server_ctx(ctx);
-
-        return err;
-}
-*/
 static int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port)
 {
         struct addrinfo *res;
@@ -251,21 +212,22 @@ static void rpmem_connect_request_handler(struct rdma_cm_event *ev)
 	struct rdma_cm_id *cma_id = ev->id;
 	struct rpmem_server *server = cma_id->context;
         struct rdma_conn_param conn_param;
+	struct rpmem_server_unit *unit;
 	struct rpmem_conn *conn;
 	int err;
 
-	/* build a new connection structure */
-	conn = calloc(1, sizeof(struct rpmem_conn));
-	if (!conn) {
-		printf("cm_id:%p malloc conn failed\n", cma_id);
+	/* build a new unit structure */
+	unit = calloc(1, sizeof(struct rpmem_server_unit));
+	if (!unit) {
+		printf("cm_id:%p malloc unit failed\n", cma_id);
 		goto reject;
 	}
-
+	unit->server = server;
+	conn = &unit->conn;
 	conn->cma_id = cma_id;
-	conn->server = server;
 	err = rpmem_conn_init(conn);
 	if (err) {
-		free(conn);
+		free(unit);
 		goto reject;
 	}
 
@@ -277,7 +239,7 @@ static void rpmem_connect_request_handler(struct rdma_cm_event *ev)
 	err = rpmem_create_qp(conn);
 	if (err) {
 		/* TODO: free resources from rpmem_conn_init */
-		free(conn);
+		free(unit);
 		goto reject;
 	}
 
