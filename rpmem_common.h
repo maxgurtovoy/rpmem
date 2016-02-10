@@ -33,6 +33,12 @@
 #ifndef RPMEM_COMMON_H
 #define RPMEM_COMMON_H
 
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+
 #include <sys/queue.h>
 
 #include <infiniband/verbs.h>
@@ -58,5 +64,7 @@ struct rpmem_conn {
 
 	pthread_t	                cqthread;
 };
+
+int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port);
 
 #endif /* RPMEM_COMMON_H */

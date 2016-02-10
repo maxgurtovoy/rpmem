@@ -33,8 +33,6 @@
 #ifndef RPMEM_H
 #define RPMEM_H
 
-#include <string.h>
-#include <stdlib.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>

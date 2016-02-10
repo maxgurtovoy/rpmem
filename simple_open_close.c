@@ -41,41 +41,12 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <netdb.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <stdio.h>
 #include <errno.h>
-#include <stdlib.h>
 #include <unistd.h>
-#include <string.h>
 #include "rpmem.h"
 
-
-int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port)
-{
-        struct addrinfo *res;
-        int ret;
-
-        ret = getaddrinfo(dst_addr, NULL, NULL, &res);
-        if (ret) {
-                fprintf(stderr, "getaddrinfo failed - invalid hostname or IP address\n");
-                return ret;
-        }
-
-        if (res->ai_family == PF_INET) {
-                memcpy(addr, res->ai_addr, sizeof(struct sockaddr_in));
-		((struct sockaddr_in *)addr)->sin_port = port;
-	} else if (res->ai_family == PF_INET6) {
-                memcpy(addr, res->ai_addr, sizeof(struct sockaddr_in6));
-		((struct sockaddr_in6 *)addr)->sin6_port = port;
-	} else
-                ret = -1;
-
-        freeaddrinfo(res);
-
-        return ret;
-}
 
 int
 main(int argc, char *argv[])
