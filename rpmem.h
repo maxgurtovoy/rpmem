@@ -48,9 +48,8 @@ enum file_state {
 };
 
 struct rpmem_file {
-	char				*rfilepath;
 	struct sockaddr			dst_addr;
-	int				fd;
+	int				size;
 };
 
 struct priv_rpmem_file {
@@ -94,7 +93,7 @@ struct rpmem_comp {
 */
 
 struct rpmem_file *
-rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags);
+rpmem_open(struct sockaddr *dst_addr);
 
 struct rpmem_mr *
 rpmem_map(struct rpmem_file *file,

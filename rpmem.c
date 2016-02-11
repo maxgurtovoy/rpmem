@@ -130,7 +130,7 @@ static int rpmem_addr_handler(struct rdma_cm_id *cma_id)
 {
 	struct priv_rpmem_file *priv_rfile = cma_id->context;
 	struct rpmem_conn *conn = &priv_rfile->conn;
-        int ret, flags, max_cqe;
+        int ret, max_cqe;
 
         ret = rdma_resolve_route(cma_id, 1000);
         if (ret) {
@@ -328,7 +328,7 @@ static void *cm_thread(void *arg)
 }
 
 struct rpmem_file *
-rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags)
+rpmem_open(struct sockaddr *dst_addr)
 {
 	struct priv_rpmem_file *priv_rfile;
 	struct rpmem_file *rfile;
@@ -379,43 +379,32 @@ rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags)
 	}
 	pthread_mutex_unlock(&priv_rfile->state_mutex);
 
-	/* RDMA connection established - need to open remote file */
-	rfile->rfilepath = strdup(rfilepath);
-	if (!rfile->rfilepath) {
-		perror("strdup");
-		goto destroy_thread;
-	}
-
+	/* RDMA connection established - need to send OPEN request */
 	ret = rpmem_post_recv(conn);
 	if (ret) {
 		perror("rpmem_post_recv");
-		goto destroy_rfilepath;
+		goto destroy_thread;
 	}
 
-	pack_open_req(rfilepath, flags, conn->send_buf);
+	pack_open_req(conn->send_buf);
 
 	ret = rpmem_post_send(conn);
 	if (ret) {
 		perror("rpmem_post_send");
-		goto destroy_rfilepath;
+		goto destroy_thread;
 	}
 
 	printf("before sem_wait_command OPEN\n");
 	sem_wait(&priv_rfile->sem_command);
 	printf("after sem_wait_command OPEN\n");
 
-	ret = unpack_open_rsp(conn->recv_buf, &rfile->fd);
+	ret = unpack_open_rsp(conn->recv_buf, &rfile->size);
         if (ret) {
 		perror("unpack_open_rsp");
-		goto destroy_rfilepath;
+		goto destroy_thread;
 	}
 
-	if (rfile->fd == -1) {
-		printf("conn %p got fd %d", conn, rfile->fd);
-		goto destroy_rfilepath;
-	}
-
-	printf("opened %d fd\n", rfile->fd);
+	printf("opened resourse sized %d \n", rfile->size);
 
 	pthread_mutex_lock(&file_list_mutex);
 	SLIST_INSERT_HEAD(&file_list, conn, entry);
@@ -423,8 +412,6 @@ rpmem_open(struct sockaddr *dst_addr, char *rfilepath, int flags)
 
 	return rfile;
 
-destroy_rfilepath:
-	free(rfile->rfilepath);
 destroy_thread:
 	pthread_cancel(priv_rfile->cmthread);
 destroy_id:
@@ -459,7 +446,7 @@ int rpmem_close(struct rpmem_file *rfile)
 		goto out;
 	}
 
-	pack_close_req(rfile->fd, conn->send_buf);
+	pack_close_req(conn->send_buf);
 
 	ret = rpmem_post_send(conn);
 	if (ret) {
@@ -479,7 +466,6 @@ int rpmem_close(struct rpmem_file *rfile)
 
 	printf("conn %p after receiving close rsp %d\n", conn, close_ret);
 out:
-	free(rfile->rfilepath);
 
 	/* Destroy cm stuff */
 	pthread_cancel(priv_rfile->cmthread);

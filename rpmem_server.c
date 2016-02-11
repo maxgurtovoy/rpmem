@@ -30,8 +30,6 @@
  * SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -41,13 +39,28 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
+#include <linux/fs.h>
 
 #include "rpmem_common.h"
 
+
 struct inargs {
-        char    *server_addr;
+        char     *server_addr;
 	uint16_t server_port;
+        char     *resource;
+};
+
+/*
+ * resource struct.
+ */
+struct rpmem_resource {
+	int 				fd;
+	struct stat64                   stbuf;
+	char				*name;
+
+	SLIST_ENTRY(rpmem_resource)		entry;
 };
 
 /*
@@ -73,6 +86,11 @@ struct rpmem_server {
 	
 	pthread_mutex_t 		conns_mutex;
 	SLIST_HEAD(, rpmem_conn)	conns_list;
+	pthread_spinlock_t              res_lock;
+	SLIST_HEAD(, rpmem_resource)	res_list;
+	int				total_size;
+	int				in_use_size;
+	int				free_size;
 
 };
 
@@ -107,47 +125,26 @@ static int rpmem_handle_open(struct rpmem_conn *conn,
 			     struct rpmem_req *req,
 			     char *cmd_data)
 {
-	const char *pathname;
-	uint32_t flags;
-	int dstfd;
+	struct rpmem_server_unit *unit = container_of(conn, struct rpmem_server_unit, conn);
+	int size;
 	int err, ret = 0;
 
-	pathname = unpack_u32(&flags, cmd_data);
+	printf("conn %p got open req\n", conn);
 
-	printf("conn %p opens %s\n", conn, pathname);
-
-	if (sizeof(flags) + strlen(pathname) + 1 != req->data_len) {
-		dstfd = -1;
-		printf("open request rejected\n");
-		ret = -1;
-		goto out;
-	}
-
-	dstfd = open(pathname, flags);
-	if (dstfd == -1) {
-		perror("open");
-		ret = -1;
-		goto out;
-	}
-
-	printf("opened %d fd\n", dstfd);
+	size = unit->server->free_size;
 
 	err = rpmem_post_recv(conn);
 	if (err) {
 		perror("rpmem_post_recv");
-		close(dstfd);
-		dstfd = -1;
 		ret = -1;
 		goto out;
 	}
 out:
-	pack_open_rsp(dstfd, conn->send_buf);
+	pack_open_rsp(size, conn->send_buf);
 
 	err = rpmem_post_send(conn);
 	if (err) {
 		perror("rpmem_post_send");
-		if (dstfd != -1)
-			close(dstfd);
 		ret = -1;
 	}
 
@@ -159,24 +156,16 @@ static int rpmem_handle_close(struct rpmem_conn *conn,
 			      struct rpmem_req *req,
 			      char *cmd_data)
 {
-	int fd;
 	int ret = 0;
 
-	unpack_u32((uint32_t *)&fd, cmd_data);
+	printf("conn %p: got close request\n", conn);
 
-	printf("conn %p: close request fd %d\n", conn, fd);
-	ret = close(fd);
-	if (ret) {
-		perror("close");
-		goto out;
-	}
-
-out:
 	pack_close_rsp(ret, conn->send_buf);
 
 	ret = rpmem_post_send(conn);
 	if (ret) {
 		perror("rpmem_post_send");
+		ret = -1;
 	}
 
 	return ret;
@@ -191,12 +180,10 @@ rpmem_rcv_completion(struct rpmem_conn *conn)
 
 	printf("conn %p rpmem_rcv_completion\n", conn);
 
-	buffer = (char *)unpack_u32((uint32_t *)&req.cmd,
+	cmd_data = (char *)unpack_u32((uint32_t *)&req.opcode,
 				    buffer);
-	cmd_data = (char *)unpack_u32((uint32_t *)&req.data_len,
-			      (char *)buffer);
 
-	switch (req.cmd) {
+	switch (req.opcode) {
 	case RPMEM_OPEN_REQ:
 		rpmem_handle_open(conn, &req, cmd_data);
 		break;
@@ -204,10 +191,9 @@ rpmem_rcv_completion(struct rpmem_conn *conn)
 		rpmem_handle_close(conn, &req, cmd_data);
 		break;
 	default:
-		printf("conn %p unknown request %d len:%d\n",
+		printf("conn %p unknown request %d\n",
 			conn,
-			req.cmd,
-			req.data_len);
+			req.opcode);
 		break;
 	};
 	return 0;
@@ -548,9 +534,10 @@ static void usage(const char *argv0)
         printf("  %s            start RPMEM server\n", argv0);
         printf("\n");
         printf("Options:\n");
-        printf("  -a, --addr=<addr>          server IP address\n");
-        printf("  -p, --port=<port>          server\n");
-        printf("  -h, --help                 display this output\n");
+        printf("  -a, --addr=<addr>           server IP address\n");
+        printf("  -p, --port=<port>           server port\n");
+        printf("  -r, --resources=<path>      resource for mapping\n");
+        printf("  -h, --help                  display this output\n");
 }
 
 static int process_inargs(int argc, char *argv[], struct inargs *in)
@@ -559,10 +546,11 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
         struct option long_options[] = {
                 { .name = "addr",      .has_arg = 1, .val = 'a' },
                 { .name = "port",      .has_arg = 1, .val = 'p' },
+                { .name = "resource",  .has_arg = 1, .val = 'r' },
                 { .name = "help",      .has_arg = 0, .val = 'h' },
                 { 0 }
         };
-	char *short_options = "a:p:h";
+	char *short_options = "a:p:r:h";
 	int c;
 	
 	optind = 0;
@@ -580,6 +568,9 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
 			break;
 		case 'p':
 			in->server_port = htons((uint16_t)strtol(optarg, NULL, 0));
+			break;
+		case 'r':
+			in->resource = strdup(optarg);
 			break;
 		case 'h':
 			usage(argv[0]);
@@ -616,12 +607,45 @@ cleanup:
 int main(int argc, char *argv[])
 {
 	struct rpmem_server server;
+	struct rpmem_resource res;
         struct inargs in;
         int err;
 
         err = process_inargs(argc, argv, &in);
         if (err)
                 return err;
+
+
+	res.name = in.resource;
+	res.fd = open(res.name, O_RDWR);
+	if (res.fd == -1) {
+		perror("open");
+		goto out;
+	}
+	err = fstat64(res.fd, &res.stbuf);
+	if (err == 0) {
+		if (S_ISBLK(res.stbuf.st_mode)) {
+			err = ioctl(res.fd, BLKGETSIZE64, &res.stbuf.st_size);
+			if (err < 0) {
+				printf("Cannot get size from %s\n", res.name);
+				goto close_fd;
+			}
+		}
+	} else {
+		printf("Cannot stat file %s\n", res.name);
+		goto close_fd;
+        }
+
+	printf("file %s size %d fd %d\n", res.name, (int)res.stbuf.st_size, res.fd);
+
+	pthread_spin_init(&server.res_lock, PTHREAD_PROCESS_PRIVATE);
+
+	pthread_spin_lock(&server.res_lock);
+	SLIST_INSERT_HEAD(&server.res_list, &res, entry);
+	server.total_size = (int)res.stbuf.st_size;
+	server.free_size = (int)res.stbuf.st_size;
+	server.in_use_size = 0;
+	pthread_spin_unlock(&server.res_lock);
 
 	pthread_mutex_init(&server.conns_mutex, NULL);
 	sem_init(&server.sem_connect, 0, 0);
@@ -665,6 +689,11 @@ destroy_event_channel:
 free_inargs:
 	sem_destroy(&server.sem_connect);
 	pthread_mutex_destroy(&server.conns_mutex);
+	pthread_spin_destroy(&server.res_lock);
+close_fd:
+	close(res.fd);
+out:
+	free(in.resource);
 	free(in.server_addr);
 
 	return 1;

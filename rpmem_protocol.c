@@ -35,34 +35,26 @@
 /*---------------------------------------------------------------------------*/
 /* pack_open_req				                             */
 /*---------------------------------------------------------------------------*/
-void pack_open_req(const char *pathname, int flags, void *buf)
+void pack_open_req(void *buf)
 {
-	uint32_t path_len = strlen(pathname) + 1;
 	char *buffer = (char *)buf;
-	uint32_t overall_size = sizeof(flags) + path_len;
-	struct rpmem_req req = { RPMEM_OPEN_REQ, overall_size };
+	struct rpmem_req req = { RPMEM_OPEN_REQ, 0 };
 
-	pack_mem(pathname, path_len,
-	pack_u32((uint32_t *)&flags,
-	pack_u32(&req.data_len,
-	pack_u32(&req.cmd,
-		 buffer))));
+	pack_u32(&req.opcode, buffer);
 
 }
 
 /*---------------------------------------------------------------------------*/
 /* pack_open_rsp				                             */
 /*---------------------------------------------------------------------------*/
-void pack_open_rsp(int fd, void *buf)
+void pack_open_rsp(int size, void *buf)
 {
 	char *buffer = (char *)buf;
-	uint32_t overall_size = sizeof(fd);
-	struct rpmem_rsp rsp = { RPMEM_OPEN_RSP, overall_size };
+	struct rpmem_rsp rsp = { RPMEM_OPEN_RSP, 0 };
 
-	pack_u32((uint32_t *)&fd,
-	pack_u32(&rsp.data_len,
-	pack_u32(&rsp.cmd,
-		 buffer)));
+	pack_u32((uint32_t *)&size,
+	pack_u32(&rsp.opcode,
+		 buffer));
 
 
 }
@@ -70,18 +62,17 @@ void pack_open_rsp(int fd, void *buf)
 /*---------------------------------------------------------------------------*/
 /* unpack_open_rsp                                                           */
 /*---------------------------------------------------------------------------*/
-int unpack_open_rsp(char *buf, int *fd)
+int unpack_open_rsp(char *buf, int *size)
 {
 	char *buffer = (char *)buf;
 	struct rpmem_rsp rsp;
 
-	unpack_u32((uint32_t *)fd,
-	unpack_u32(&rsp.data_len,
-	unpack_u32(&rsp.cmd,
-                   buffer)));
+	unpack_u32((uint32_t *)size,
+	unpack_u32(&rsp.opcode,
+                   buffer));
 
-	if ((rsp.cmd != RPMEM_OPEN_RSP) || sizeof(*fd) != rsp.data_len) {
-		printf("got %d cmd\n", rsp.cmd);
+	if (rsp.opcode != RPMEM_OPEN_RSP) {
+		printf("got %d opcode\n", rsp.opcode);
                 return -EINVAL;
 	}
 
@@ -91,16 +82,12 @@ int unpack_open_rsp(char *buf, int *fd)
 /*---------------------------------------------------------------------------*/
 /* pack_close_req                                                            */
 /*---------------------------------------------------------------------------*/
-void pack_close_req(int fd, void *buf)
+void pack_close_req(void *buf)
 {
         char            *buffer = buf;
-        unsigned int    overall_size = sizeof(fd);
-        struct rpmem_req req = { RPMEM_CLOSE_REQ, overall_size };
+        struct rpmem_req req = { RPMEM_CLOSE_REQ, 0 };
 
-        pack_u32((uint32_t *)&fd,
-        pack_u32(&req.data_len,
-        pack_u32(&req.cmd,
-                 buffer)));
+        pack_u32(&req.opcode, buffer);
 
 }
 
@@ -110,13 +97,11 @@ void pack_close_req(int fd, void *buf)
 void pack_close_rsp(int ret, void *buf)
 {
         char            *buffer = buf;
-        unsigned int    overall_size = sizeof(ret);
-        struct rpmem_rsp rsp = { RPMEM_CLOSE_RSP, overall_size };
+        struct rpmem_rsp rsp = { RPMEM_CLOSE_RSP, 0 };
 
         pack_u32((uint32_t *)&ret,
-        pack_u32(&rsp.data_len,
-        pack_u32(&rsp.cmd,
-                 buffer)));
+        pack_u32(&rsp.opcode,
+                 buffer));
 
 }
 
@@ -129,12 +114,11 @@ int unpack_close_rsp(char *buf, int *ret)
 	struct rpmem_rsp rsp;
 
 	unpack_u32((uint32_t *)ret,
-	unpack_u32(&rsp.data_len,
-	unpack_u32(&rsp.cmd,
-                   buffer)));
+	unpack_u32(&rsp.opcode,
+                   buffer));
 
-	if ((rsp.cmd != RPMEM_CLOSE_RSP) || sizeof(*ret) != rsp.data_len) {
-		printf("got %d cmd\n", rsp.cmd);
+	if (rsp.opcode != RPMEM_CLOSE_RSP) {
+		printf("got %d opcode\n", rsp.opcode);
                 return -EINVAL;
 	}
 

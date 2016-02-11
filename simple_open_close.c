@@ -55,23 +55,23 @@ main(int argc, char *argv[])
 	struct sockaddr_storage ssin;
 	uint16_t port;
 
-	if (argc != 4) {
+	if (argc != 3) {
 		fprintf(stderr, "usage: %s dst-file server-ip server-port\n", argv[0]);
 		exit(1);
 	}
 
-	port = htons((uint16_t)atoi(argv[3]));
+	port = htons((uint16_t)atoi(argv[2]));
 
-	fprintf(stderr, "port %u net_port %u\n", (uint16_t)atoi(argv[3]), port);
+	fprintf(stderr, "port %u net_port %u\n", (uint16_t)atoi(argv[2]), port);
 
-	if (get_addr(argv[2], (struct sockaddr *)&ssin, port)) {
-		fprintf(stderr, "failed to get addr %s\n", argv[2]);
+	if (get_addr(argv[1], (struct sockaddr *)&ssin, port)) {
+		fprintf(stderr, "failed to get addr %s\n", argv[1]);
 		exit(1);
 
 	}
 
-	/* open dst-file in remote server */
-	rfile = rpmem_open((struct sockaddr *)&ssin, argv[1], O_RDWR);
+	/* open channel to remote server */
+	rfile = rpmem_open((struct sockaddr *)&ssin);
 	if (!rfile) {
 		perror("rpmem_open");
 		exit(1);

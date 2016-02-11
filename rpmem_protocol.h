@@ -39,8 +39,10 @@
 #include <arpa/inet.h>
 #include <errno.h>
 
-/** protocol commands */
-enum rpmem_commands {
+#define RPMEM_CMD_SIZE 48
+
+/* protocol commands */
+enum rpmem_opcode {
         RPMEM_OPEN_REQ,
         RPMEM_OPEN_RSP,
         RPMEM_CLOSE_REQ,
@@ -49,18 +51,29 @@ enum rpmem_commands {
         RPMEM_CMD_LAST
 };
 
-/** command for server */
+/* general request structure */
 struct rpmem_req {
-        uint32_t cmd;
-        uint32_t data_len;
+        uint32_t opcode;
+	uint8_t  cmd_specific_data[44];
 };
 
-/** answer to client */
+struct rpmem_open_req {
+        uint32_t opcode;
+	uint8_t  reserved[44];
+};
+
+
+/* general response structure */
 struct rpmem_rsp {
-        uint32_t cmd;
-        uint32_t data_len;
+        uint32_t opcode;
+	uint8_t  cmd_specific_data[44];
 };
 
+struct rpmem_open_rsp {
+        uint32_t opcode;
+	uint32_t size; //remote resource size
+	uint8_t  reserved[40];
+};
 
 static inline char *pack_mem(const void *data, const size_t size, char *buffer)
 {
@@ -87,10 +100,10 @@ static inline const char *unpack_u32(uint32_t *data, const char *buffer)
 	return buffer + sizeof(*data);
 }
 
-void pack_open_req(const char *pathname, int flags, void *buf);
-void pack_open_rsp(int fd, void *buf);
+void pack_open_req(void *buf);
+void pack_open_rsp(int size, void *buf);
 int unpack_open_rsp(char *buf, int *fd);
-void pack_close_req(int fd, void *buf);
+void pack_close_req(void *buf);
 void pack_close_rsp(int fd, void *buf);
 int unpack_close_rsp(char *buf, int *ret);
 
