@@ -45,6 +45,32 @@
 #include <rdma/rdma_cma.h>
 #include <rdma/rdma_verbs.h>
 
+
+
+#define MAX_BUF_SIZE	128
+
+/** protocol commands */
+enum rpmem_commands {
+        RPMEM_OPEN_REQ,
+        RPMEM_OPEN_RSP,
+        RPMEM_CLOSE_REQ,
+        RPMEM_CLOSE_RSP,
+
+        RPMEM_CMD_LAST
+};
+
+/** command for server */
+struct rpmem_req {
+        uint32_t cmd;
+        uint32_t data_len;
+};
+
+/** answer to client */
+struct rpmem_rsp {
+        uint32_t cmd;
+        uint32_t data_len;
+};
+
 /*
  * conn struct.
  */
@@ -63,8 +89,49 @@ struct rpmem_conn {
 	struct ibv_comp_channel      	*comp_channel;
 
 	pthread_t	                cqthread;
+
+	struct ibv_mr			*recv_mr;
+	struct ibv_mr			*send_mr;
+	char				recv_buf[MAX_BUF_SIZE];
+	char				send_buf[MAX_BUF_SIZE];
+
 };
 
+static inline char *pack_mem(const void *data, const size_t size, char *buffer)
+{
+	memcpy(buffer, data, size);
+	return buffer + size;
+}
+
+static inline const char *unpack_mem(void *data, const size_t size,
+				     const char *buffer)
+{
+	memcpy(data, buffer, size);
+	return buffer + size;
+}
+
+static inline char *pack_u32(const uint32_t *data, char *buffer)
+{
+	*((uint32_t *)buffer) = htonl(*data);
+	return buffer + sizeof(*data);
+}
+
+static inline const char *unpack_u32(uint32_t *data, const char *buffer)
+{
+	*data = ntohl(*((uint32_t *)buffer));
+	return buffer + sizeof(*data);
+}
+
 int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port);
+
+int rpmem_post_recv(struct rpmem_conn *conn);
+int rpmem_post_send(struct rpmem_conn *conn);
+
+void pack_open_req(const char *pathname, int flags, void *buf);
+void pack_open_rsp(int fd, void *buf);
+int unpack_open_rsp(char *buf, int *fd);
+void pack_close_req(int fd, void *buf);
+void pack_close_rsp(int fd, void *buf);
+int unpack_close_rsp(char *buf, int *ret);
 
 #endif /* RPMEM_COMMON_H */

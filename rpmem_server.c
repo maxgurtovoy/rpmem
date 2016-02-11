@@ -30,6 +30,9 @@
  * SOFTWARE.
  */
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <getopt.h>
@@ -100,6 +103,205 @@ static int rpmem_bind_server(struct rpmem_server *server, struct inargs *in)
 	return 0;
 }
 
+static int rpmem_handle_open(struct rpmem_conn *conn,
+			     struct rpmem_req *req,
+			     char *cmd_data)
+{
+	const char *pathname;
+	uint32_t flags;
+	int dstfd;
+	int err, ret = 0;
+
+	pathname = unpack_u32(&flags, cmd_data);
+
+	printf("conn %p opens %s\n", conn, pathname);
+
+	if (sizeof(flags) + strlen(pathname) + 1 != req->data_len) {
+		dstfd = -1;
+		printf("open request rejected\n");
+		ret = -1;
+		goto out;
+	}
+
+	dstfd = open(pathname, flags);
+	if (dstfd == -1) {
+		perror("open");
+		ret = -1;
+		goto out;
+	}
+
+	printf("opened %d fd\n", dstfd);
+
+	err = rpmem_post_recv(conn);
+	if (err) {
+		perror("rpmem_post_recv");
+		close(dstfd);
+		dstfd = -1;
+		ret = -1;
+		goto out;
+	}
+out:
+	pack_open_rsp(dstfd, conn->send_buf);
+
+	err = rpmem_post_send(conn);
+	if (err) {
+		perror("rpmem_post_send");
+		if (dstfd != -1)
+			close(dstfd);
+		ret = -1;
+	}
+
+	return ret;
+
+}
+
+static int rpmem_handle_close(struct rpmem_conn *conn,
+			      struct rpmem_req *req,
+			      char *cmd_data)
+{
+	int fd;
+	int ret = 0;
+
+	unpack_u32((uint32_t *)&fd, cmd_data);
+
+	printf("conn %p: close request fd %d\n", conn, fd);
+	ret = close(fd);
+	if (ret) {
+		perror("close");
+		goto out;
+	}
+
+out:
+	pack_close_rsp(ret, conn->send_buf);
+
+	ret = rpmem_post_send(conn);
+	if (ret) {
+		perror("rpmem_post_send");
+	}
+
+	return ret;
+}
+
+int
+rpmem_rcv_completion(struct rpmem_conn *conn)
+{
+	char			*buffer = (char *)conn->recv_buf;
+	char			*cmd_data;
+	struct rpmem_req	req;
+
+	printf("conn %p rpmem_rcv_completion\n", conn);
+
+	buffer = (char *)unpack_u32((uint32_t *)&req.cmd,
+				    buffer);
+	cmd_data = (char *)unpack_u32((uint32_t *)&req.data_len,
+			      (char *)buffer);
+
+	switch (req.cmd) {
+	case RPMEM_OPEN_REQ:
+		rpmem_handle_open(conn, &req, cmd_data);
+		break;
+	case RPMEM_CLOSE_REQ:
+		rpmem_handle_close(conn, &req, cmd_data);
+		break;
+	default:
+		printf("conn %p unknown request %d len:%d\n",
+			conn,
+			req.cmd,
+			req.data_len);
+		break;
+	};
+	return 0;
+}
+
+int
+rpmem_snd_completion(struct rpmem_conn *conn)
+{
+
+	printf("conn %p rpmem_snd_completion\n", conn);
+	/* For now don't need to do anything here */
+	return 0;
+}
+
+static void rpmem_handle_wc(struct ibv_wc *wc,
+			    struct rpmem_conn *conn)
+{
+	printf("conn %p handle opcode %d status %d wc %p\n", conn, wc->opcode, wc->status, wc);
+
+	if (wc->status == IBV_WC_SUCCESS) {
+		if (wc->opcode == IBV_WC_RECV) {
+			rpmem_rcv_completion(conn);
+		} else if (wc->opcode == IBV_WC_SEND) {
+			rpmem_snd_completion(conn);
+		} else {
+			printf("conn %p got unknown opcode %d wc %p\n", conn, wc->opcode, wc);
+		}
+	} else {
+		if (wc->status == IBV_WC_WR_FLUSH_ERR) {
+			printf("conn %p got flush err %p wc\n", conn, wc);
+		} else {
+			printf("conn %p got err_comp %p wc\n", conn, wc);
+		}
+	}
+
+}
+
+static int cq_event_handler(struct rpmem_conn *conn)
+{
+	struct ibv_wc wc[16];
+	unsigned int i;
+	unsigned int n;
+	unsigned int completed = 0;
+
+	while ((n = ibv_poll_cq(conn->cq, 16, wc)) > 0) {
+		for (i = 0; i < n; i++)
+			rpmem_handle_wc(&wc[i], conn);
+
+		completed += n;
+		if (completed >= 64)
+			break;
+	}
+
+        if (n) {
+                perror("poll error");
+                return -1;
+        }
+
+        return 0;
+}
+
+static void *cq_thread(void *arg)
+{
+	struct rpmem_conn *conn = arg;
+        struct ibv_cq *ev_cq;
+        void *ev_ctx;
+        int ret;
+
+        while (1) {
+                ret = ibv_get_cq_event(conn->comp_channel, &ev_cq, &ev_ctx);
+                if (ret) {
+                        perror("Failed to get cq event!");
+                        pthread_exit(NULL);
+                }
+
+                if (ev_cq != conn->cq) {
+                        perror("Unknown CQ!");
+                        pthread_exit(NULL);
+                }
+
+                ret = ibv_req_notify_cq(conn->cq, 0);
+                if (ret) {
+                        perror("Failed to set notify!");
+                        pthread_exit(NULL);
+                }
+
+                ret = cq_event_handler(conn);
+
+                ibv_ack_cq_events(conn->cq, 1);
+                if (ret)
+                        pthread_exit(NULL);
+        }
+}
+
 static int rpmem_conn_init(struct rpmem_conn *conn)
 {
 	struct rdma_cm_id *cma_id = conn->cma_id;
@@ -113,10 +315,27 @@ static int rpmem_conn_init(struct rpmem_conn *conn)
 		goto error;
         }
 
+	conn->recv_mr = ibv_reg_mr(conn->pd,
+				   conn->recv_buf,
+				   MAX_BUF_SIZE,
+				   IBV_ACCESS_LOCAL_WRITE);
+	if (!conn->recv_mr) {
+		perror("recv ibv_reg_mr");
+		goto pd_error;
+	}
+	conn->send_mr = ibv_reg_mr(conn->pd,
+				   conn->send_buf,
+				   MAX_BUF_SIZE,
+				   IBV_ACCESS_LOCAL_WRITE);
+	if (!conn->send_mr) {
+		perror("send ibv_reg_mr");
+		goto recv_mr_error;
+	}
+
         conn->comp_channel = ibv_create_comp_channel(cma_id->verbs);
 	if (!conn->comp_channel) {
 		perror("ibv_create_comp_channel failed");
-		goto pd_error;
+		goto send_mr_error;
 	}
 
 	printf("conn %p creating CQ\n", conn);
@@ -138,7 +357,7 @@ static int rpmem_conn_init(struct rpmem_conn *conn)
 		goto cq_error;
 	}
 
-	//pthread_create(&conn->cqthread, NULL, cq_thread, conn);
+	pthread_create(&conn->cqthread, NULL, cq_thread, conn);
 
 	return 0;
 
@@ -146,6 +365,10 @@ cq_error:
         ibv_destroy_cq(conn->cq);
 comp_error:
 	ibv_destroy_comp_channel(conn->comp_channel);
+send_mr_error:
+	ibv_dereg_mr(conn->send_mr);
+recv_mr_error:
+	ibv_dereg_mr(conn->recv_mr);
 pd_error:
         ibv_dealloc_pd(conn->pd);
 error:
@@ -161,7 +384,7 @@ static int rpmem_create_qp(struct rpmem_conn *conn)
         init_attr.qp_context  = (void *) conn;
 	init_attr.cap.max_send_wr = 128;
 	init_attr.cap.max_recv_wr = 128;
-	init_attr.cap.max_recv_sge = 2;
+	init_attr.cap.max_recv_sge = 1;
 	init_attr.cap.max_send_sge = 1;
 	init_attr.qp_type = IBV_QPT_RC;
 	init_attr.send_cq = conn->cq;
@@ -218,8 +441,13 @@ static void rpmem_connect_request_handler(struct rdma_cm_event *ev)
 	printf("conn:%p cm_id:%p, created qp:%p\n", conn, cma_id, conn->qp);
 
 	/*
-	 * TODO: Post buffers for incoming messages.
+	 * Post incoming buffer.
 	 */
+	err = rpmem_post_recv(conn);
+	if (err) {
+		perror("rpmem_post_recv");
+		goto free_conn;
+	}
 
         memset(&conn_param, 0, sizeof(struct rdma_conn_param));
         conn_param.responder_resources = 1;

@@ -53,7 +53,7 @@ struct rpmem_file {
 	int				fd;
 };
 
-struct mlx_rpmem_file {
+struct priv_rpmem_file {
 	struct rpmem_file		rfile;
 
 	struct rpmem_conn		conn;
@@ -65,6 +65,7 @@ struct mlx_rpmem_file {
 	enum file_state         	state;
 	pthread_mutex_t 		state_mutex;
 
+	sem_t	                        sem_command;
 	/* information of remote persistance */
 	//struct list_head		rmap_list;
 	//int				nrmaps;
@@ -75,7 +76,7 @@ struct rpmem_mr {
 	size_t		len;
 };
 
-struct mlx_rpmem_mr {
+struct priv_rpmem_mr {
 	struct rpmem_mr		rmr;
 	uint32_t		rkey;
 };
