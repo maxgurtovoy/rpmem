@@ -30,55 +30,68 @@
  * SOFTWARE.
  */
 
-#ifndef RPMEM_COMMON_H
-#define RPMEM_COMMON_H
+#ifndef RPMEM_PROTOCOL_H
+#define RPMEM_PROTOCOL_H
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <netdb.h>
 #include <arpa/inet.h>
+#include <errno.h>
 
-#include <sys/queue.h>
+/** protocol commands */
+enum rpmem_commands {
+        RPMEM_OPEN_REQ,
+        RPMEM_OPEN_RSP,
+        RPMEM_CLOSE_REQ,
+        RPMEM_CLOSE_RSP,
 
-#include <infiniband/verbs.h>
-#include <rdma/rdma_cma.h>
-#include <rdma/rdma_verbs.h>
-
-#include "rpmem_protocol.h"
-
-
-#define MAX_BUF_SIZE	128
-
-/*
- * conn struct.
- */
-struct rpmem_conn {
-
-	/* for server  */
-	SLIST_ENTRY(rpmem_conn)		entry;
-
-	struct rdma_cm_id 		*cma_id;
-
-	struct ibv_device		*ib_device;
-	struct ibv_device_attr        	dev_attr;
-	struct ibv_pd                	*pd;
-	struct ibv_cq                	*cq;
-	struct ibv_qp                	*qp;
-	struct ibv_comp_channel      	*comp_channel;
-
-	pthread_t	                cqthread;
-
-	struct ibv_mr			*recv_mr;
-	struct ibv_mr			*send_mr;
-	char				recv_buf[MAX_BUF_SIZE];
-	char				send_buf[MAX_BUF_SIZE];
-
+        RPMEM_CMD_LAST
 };
 
-int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port);
+/** command for server */
+struct rpmem_req {
+        uint32_t cmd;
+        uint32_t data_len;
+};
 
-int rpmem_post_recv(struct rpmem_conn *conn);
-int rpmem_post_send(struct rpmem_conn *conn);
+/** answer to client */
+struct rpmem_rsp {
+        uint32_t cmd;
+        uint32_t data_len;
+};
 
-#endif /* RPMEM_COMMON_H */
+
+static inline char *pack_mem(const void *data, const size_t size, char *buffer)
+{
+	memcpy(buffer, data, size);
+	return buffer + size;
+}
+
+static inline const char *unpack_mem(void *data, const size_t size,
+				     const char *buffer)
+{
+	memcpy(data, buffer, size);
+	return buffer + size;
+}
+
+static inline char *pack_u32(const uint32_t *data, char *buffer)
+{
+	*((uint32_t *)buffer) = htonl(*data);
+	return buffer + sizeof(*data);
+}
+
+static inline const char *unpack_u32(uint32_t *data, const char *buffer)
+{
+	*data = ntohl(*((uint32_t *)buffer));
+	return buffer + sizeof(*data);
+}
+
+void pack_open_req(const char *pathname, int flags, void *buf);
+void pack_open_rsp(int fd, void *buf);
+int unpack_open_rsp(char *buf, int *fd);
+void pack_close_req(int fd, void *buf);
+void pack_close_rsp(int fd, void *buf);
+int unpack_close_rsp(char *buf, int *ret);
+
+#endif /* RPMEM_PROTOCOL_H */
