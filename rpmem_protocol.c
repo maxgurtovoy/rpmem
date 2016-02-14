@@ -112,3 +112,45 @@ int unpack_close_rsp(struct rpmem_rsp *rsp, int *ret)
 	return 0;
 }
 
+
+/*---------------------------------------------------------------------------*/
+/* pack_map_req 				                             */
+/*---------------------------------------------------------------------------*/
+void pack_map_req(struct rpmem_req *req, int len)
+{
+	struct rpmem_map_req *map_req = (struct rpmem_map_req *)req;
+
+	map_req->opcode = htonl(RPMEM_MAP_REQ);
+	map_req->len = htonl(len);
+}
+
+/*---------------------------------------------------------------------------*/
+/* pack_map_rsp 				                             */
+/*---------------------------------------------------------------------------*/
+void pack_map_rsp(struct rpmem_rsp *rsp, uint32_t rkey, uint64_t remote_addr)
+{
+	struct rpmem_map_rsp *map_rsp = (struct rpmem_map_rsp *)rsp;
+
+	map_rsp->opcode = htonl(RPMEM_MAP_RSP);
+	map_rsp->rkey = htobe32(rkey);
+	map_rsp->remote_addr = htobe64(remote_addr);
+
+}
+
+/*---------------------------------------------------------------------------*/
+/* unpack_map_rsp                                                           */
+/*---------------------------------------------------------------------------*/
+int unpack_map_rsp(struct rpmem_rsp *rsp, uint32_t *rkey, uint64_t *remote_addr)
+{
+	struct rpmem_map_rsp *map_rsp = (struct rpmem_map_rsp *)rsp;
+
+	if (ntohl(map_rsp->opcode) != RPMEM_MAP_RSP) {
+		printf("got %d opcode\n", (int)ntohl(map_rsp->opcode));
+                return -EINVAL;
+	}
+
+	*rkey = be32toh(map_rsp->rkey);
+	*remote_addr = be64toh(map_rsp->remote_addr);
+
+	return 0;
+}

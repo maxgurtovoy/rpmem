@@ -81,5 +81,12 @@ int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port);
 
 int rpmem_post_recv(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_mr *mr);
 int rpmem_post_send(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_mr *mr);
+int rpmem_post_rdma_read(struct rpmem_conn *conn,
+			 uint32_t rkey,
+			 uint32_t lkey,
+			 uint64_t remote_addr,
+			 void* local_addr,
+			 int len);
+
 
 #endif /* RPMEM_COMMON_H */

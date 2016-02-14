@@ -112,3 +112,33 @@ int rpmem_post_recv(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_m
 	return 0;
 }
 
+int rpmem_post_rdma_read(struct rpmem_conn *conn, uint32_t rkey, uint32_t lkey,
+			 uint64_t remote_addr, void* local_addr, int len)
+{
+	struct ibv_send_wr rdma_read_wr;
+	struct ibv_send_wr *send_wr_failed;
+	struct ibv_sge sge;
+	int ret;
+
+	sge.addr   = (uintptr_t) local_addr;
+	sge.length = len;
+	sge.lkey   = lkey;
+
+	memset(&rdma_read_wr, 0, sizeof(rdma_read_wr));
+	rdma_read_wr.opcode = IBV_WR_RDMA_READ;
+	rdma_read_wr.wr.rdma.rkey = rkey;
+	rdma_read_wr.wr.rdma.remote_addr = remote_addr;
+	rdma_read_wr.send_flags = IBV_SEND_SIGNALED;
+	rdma_read_wr.sg_list = &sge;
+	rdma_read_wr.num_sge = 1;
+	rdma_read_wr.next = NULL;
+
+	ret = ibv_post_send(conn->qp, &rdma_read_wr, &send_wr_failed);
+	if (ret) {
+		perror("ibv_post_send rdma_read");
+		return -1;
+	}
+
+	return 0;
+}
+

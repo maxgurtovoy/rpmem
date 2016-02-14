@@ -47,9 +47,24 @@ enum file_state {
 	RPMEM_DISCONNECTED
 };
 
+struct rpmem_mr {
+	void		*addr;
+	size_t		len;
+};
+
+struct priv_rpmem_mr {
+	struct rpmem_mr		rmr;
+	struct ibv_mr		*mr;
+	uint32_t		rkey;
+	uint64_t		remote_addr;
+};
+
+
 struct rpmem_file {
 	struct sockaddr			dst_addr;
 	int				size;
+	struct rpmem_mr			*rmr;
+
 };
 
 struct priv_rpmem_file {
@@ -65,19 +80,10 @@ struct priv_rpmem_file {
 	pthread_mutex_t 		state_mutex;
 
 	sem_t	                        sem_command;
+	struct priv_rpmem_mr		priv_mr;
 	/* information of remote persistance */
 	//struct list_head		rmap_list;
 	//int				nrmaps;
-};
-
-struct rpmem_mr {
-	void		*addr;
-	size_t		len;
-};
-
-struct priv_rpmem_mr {
-	struct rpmem_mr		rmr;
-	uint32_t		rkey;
 };
 
 struct rpmem_sge {
@@ -96,8 +102,7 @@ struct rpmem_file *
 rpmem_open(struct sockaddr *dst_addr);
 
 struct rpmem_mr *
-rpmem_map(struct rpmem_file *file,
-	  off_t offset, size_t len);
+rpmem_map(struct rpmem_file *file, size_t len);
 
 void
 rpmem_unmap(struct rpmem_mr *mr);

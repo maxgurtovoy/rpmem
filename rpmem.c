@@ -54,6 +54,9 @@ static void rpmem_handle_wc(struct ibv_wc *wc,
 			sem_post(&priv_rfile->sem_command);
 		} else if (wc->opcode == IBV_WC_SEND) {
 			printf("conn %p got send_comp %d wc %p\n", conn, wc->opcode, wc);
+		} else if (wc->opcode == IBV_WC_RDMA_READ) {
+			printf("conn %p got rdma_read %d wc %p\n", conn, wc->opcode, wc);
+			sem_post(&priv_rfile->sem_command);
 		} else {
 			printf("conn %p got unknown opcode %d wc %p\n", conn, wc->opcode, wc);
 		}
@@ -343,6 +346,8 @@ rpmem_open(struct sockaddr *dst_addr)
 
 	conn = &priv_rfile->conn;
 	rfile = &priv_rfile->rfile;
+	rfile->rmr = &priv_rfile->priv_mr.rmr;
+
 	pthread_mutex_init(&priv_rfile->state_mutex, NULL);
 	sem_init(&priv_rfile->sem_connect, 0, 0);
 	sem_init(&priv_rfile->sem_command, 0, 0);
@@ -489,3 +494,80 @@ out:
 	return 0;
 }
 
+struct rpmem_mr *
+rpmem_map(struct rpmem_file *rfile, size_t len)
+{
+	struct priv_rpmem_file *priv_rfile = container_of(rfile, struct priv_rpmem_file, rfile);
+	struct rpmem_conn *conn = &priv_rfile->conn;
+	struct rpmem_mr *rmr = rfile->rmr;
+	int ret;
+
+	rmr->len = len;
+	rmr->addr = calloc(1, len);
+	if (!rmr->addr) {
+		perror("calloc");
+		goto out;
+	}
+
+	priv_rfile->priv_mr.mr = ibv_reg_mr(conn->pd,
+					    rmr->addr,
+					    len,
+					    IBV_ACCESS_LOCAL_WRITE);
+	if (!priv_rfile->priv_mr.mr) {
+		perror("buff ibv_reg_mr");
+		goto destroy_addr;
+	}
+
+	ret = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
+	if (ret) {
+		perror("rpmem_post_recv");
+		goto destroy_mr;
+	}
+
+	pack_map_req(&conn->req, len);
+
+	ret = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
+	if (ret) {
+		perror("rpmem_post_send");
+		goto destroy_mr;
+	}
+
+	printf("before sem_wait_command MAP\n");
+	sem_wait(&priv_rfile->sem_command);
+	printf("after sem_wait_command MAP\n");
+
+	ret = unpack_map_rsp(&conn->rsp, &priv_rfile->priv_mr.rkey, &priv_rfile->priv_mr.remote_addr);
+        if (ret) {
+		perror("unpack_close_rsp");
+		goto destroy_mr;
+	}
+
+	printf("conn %p after receiving map rsp. rkey %d addr %lld\n", conn, (int)priv_rfile->priv_mr.rkey,
+		(long long int)priv_rfile->priv_mr.remote_addr);
+
+	ret = rpmem_post_rdma_read(conn,
+				   priv_rfile->priv_mr.rkey,
+				   priv_rfile->priv_mr.mr->lkey,
+				   priv_rfile->priv_mr.remote_addr,
+				   rmr->addr,
+				   rmr->len);
+	if (ret) {
+		perror("rpmem_post_rdma_read");
+		goto destroy_mr;
+	}
+
+	printf("before sem_wait_command RDMA_READ\n");
+	sem_wait(&priv_rfile->sem_command);
+	printf("after sem_wait_command RDMA_READ\n");
+
+	return rmr;
+
+destroy_mr:
+	ibv_dereg_mr(priv_rfile->priv_mr.mr);
+destroy_addr:
+	free(rmr->addr);
+out:
+	rmr->len = 0;
+
+	return NULL;
+}

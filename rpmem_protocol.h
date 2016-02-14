@@ -47,6 +47,8 @@ enum rpmem_opcode {
         RPMEM_OPEN_RSP,
         RPMEM_CLOSE_REQ,
         RPMEM_CLOSE_RSP,
+        RPMEM_MAP_REQ,
+        RPMEM_MAP_RSP,
 
         RPMEM_CMD_LAST
 };
@@ -72,6 +74,12 @@ struct rpmem_close_req {
 	uint8_t  reserved[44];
 };
 
+struct rpmem_map_req {
+	uint32_t opcode;
+	uint32_t len;
+	uint8_t  reserved[40];
+};
+
 /* general response structure */
 struct rpmem_rsp {
 	uint32_t opcode;
@@ -90,6 +98,13 @@ struct rpmem_close_rsp {
 	uint8_t  reserved[40];
 };
 
+struct rpmem_map_rsp {
+	uint32_t opcode;
+	uint32_t rkey; //remote resource size
+	uint64_t remote_addr;
+	uint8_t  reserved[32];
+};
+
 
 void pack_open_req(struct rpmem_req *req);
 void pack_open_rsp(int size, struct rpmem_rsp *rsp);
@@ -97,5 +112,8 @@ int unpack_open_rsp(struct rpmem_rsp *rsp, int *size);
 void pack_close_req(struct rpmem_req *req);
 void pack_close_rsp(int ret, struct rpmem_rsp *rsp);
 int unpack_close_rsp(struct rpmem_rsp *rsp, int *ret);
+void pack_map_req(struct rpmem_req *req, int len);
+void pack_map_rsp(struct rpmem_rsp *rsp, uint32_t rkey, uint64_t remote_addr);
+int unpack_map_rsp(struct rpmem_rsp *rsp, uint32_t *rkey, uint64_t *remote_addr);
 
 #endif /* RPMEM_PROTOCOL_H */

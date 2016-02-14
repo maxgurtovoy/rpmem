@@ -41,6 +41,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
+#include <sys/mman.h>
 #include <linux/fs.h>
 
 #include "rpmem_common.h"
@@ -59,6 +60,9 @@ struct rpmem_resource {
 	int 				fd;
 	struct stat64                   stbuf;
 	char				*name;
+	struct ibv_mr			*mr;
+	void				*addr;
+	int				map_len;
 
 	SLIST_ENTRY(rpmem_resource)		entry;
 };
@@ -70,6 +74,7 @@ struct rpmem_server_unit {
 	struct rpmem_server		*server;
 
 	struct rpmem_conn		conn;
+	struct rpmem_resource		*res;
 };
 
 /*
@@ -167,6 +172,90 @@ static int rpmem_handle_close(struct rpmem_conn *conn)
 	return ret;
 }
 
+static int rpmem_handle_map(struct rpmem_conn *conn)
+{
+	struct rpmem_server_unit *unit = container_of(conn, struct rpmem_server_unit, conn);
+	struct rpmem_server *server = unit->server;
+	struct rpmem_map_req *req = (struct rpmem_map_req *)&conn->req;
+	struct rpmem_resource *res;
+	void *addr;
+	uint32_t rkey;
+	int len;
+	int err, ret = 0;
+
+	len = ntohl(req->len);
+
+	printf("conn %p got map req %d\n", conn, len);
+
+
+	err = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
+	if (err) {
+		perror("rpmem_post_recv");
+		ret = -1;
+		goto out;
+	}
+
+	pthread_spin_lock(&server->res_lock);
+	SLIST_FOREACH(res, &server->res_list, entry) {
+		printf("resource %p fd %d size %d name %s\n", res, res->fd, (int)res->stbuf.st_size, res->name);
+		if (len < (int)res->stbuf.st_size) {
+			printf("found suitable space in fd %d\n", res->fd);
+			unit->res = res;
+			server->free_size -= (int)(res->stbuf.st_size);
+			server->in_use_size += (int)(res->stbuf.st_size);
+			break;
+		}
+	}
+	pthread_spin_unlock(&server->res_lock);
+
+	if (!unit->res) {
+		printf("didn't find suitable mapping\n");
+		ret = -1;
+		goto out;
+	}
+
+	if (posix_fallocate(res->fd, 0, len)) {
+		perror("posix_fallocate");
+		ret = -1;
+        }
+
+	addr = mmap(NULL, len, PROT_READ|PROT_WRITE, MAP_PRIVATE, res->fd, 0);
+	if (addr == MAP_FAILED) {
+		addr = NULL;
+		printf("failed to map\n");
+		ret = -1;
+	}
+
+	res->addr = addr;
+	res->map_len = len;
+	res->mr = ibv_reg_mr(conn->pd,
+			     addr,
+			     len,
+			     IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
+	if (!res->mr) {
+		perror("map ibv_reg_mr");
+		munmap(addr, len);
+		addr = NULL;
+		ret = -1;
+		goto out;
+	}
+
+	rkey = (uint32_t)(res->mr->rkey);
+out:
+	printf("map rkey %d addr %lld\n", (int)rkey, (long long int)addr);
+	pack_map_rsp(&conn->rsp, rkey, (uint64_t)addr);
+
+	err = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
+	if (err) {
+		perror("rpmem_post_send");
+		ret = -1;
+	}
+
+	return ret;
+
+}
+
+
 int
 rpmem_rcv_completion(struct rpmem_conn *conn)
 {
@@ -181,6 +270,9 @@ rpmem_rcv_completion(struct rpmem_conn *conn)
 		break;
 	case RPMEM_CLOSE_REQ:
 		rpmem_handle_close(conn);
+		break;
+	case RPMEM_MAP_REQ:
+		rpmem_handle_map(conn);
 		break;
 	default:
 		printf("conn %p unknown request %d\n",
@@ -631,6 +723,8 @@ int main(int argc, char *argv[])
 	printf("file %s size %d fd %d\n", res.name, (int)res.stbuf.st_size, res.fd);
 
 	pthread_spin_init(&server.res_lock, PTHREAD_PROCESS_PRIVATE);
+	SLIST_INIT(&server.res_list);
+	SLIST_INIT(&server.conns_list);
 
 	pthread_spin_lock(&server.res_lock);
 	SLIST_INSERT_HEAD(&server.res_list, &res, entry);
