@@ -51,27 +51,42 @@ enum rpmem_opcode {
         RPMEM_CMD_LAST
 };
 
+/* general command structure */
+struct rpmem_cmd {
+	uint8_t  cmd_specific_data[RPMEM_CMD_SIZE];
+};
+
 /* general request structure */
 struct rpmem_req {
-        uint32_t opcode;
+	uint32_t opcode;
 	uint8_t  cmd_specific_data[44];
 };
 
 struct rpmem_open_req {
-        uint32_t opcode;
+	uint32_t opcode;
 	uint8_t  reserved[44];
 };
 
+struct rpmem_close_req {
+	uint32_t opcode;
+	uint8_t  reserved[44];
+};
 
 /* general response structure */
 struct rpmem_rsp {
-        uint32_t opcode;
+	uint32_t opcode;
 	uint8_t  cmd_specific_data[44];
 };
 
 struct rpmem_open_rsp {
-        uint32_t opcode;
+	uint32_t opcode;
 	uint32_t size; //remote resource size
+	uint8_t  reserved[40];
+};
+
+struct rpmem_close_rsp {
+	uint32_t opcode;
+	uint32_t ret; //remote resource size
 	uint8_t  reserved[40];
 };
 
@@ -100,11 +115,11 @@ static inline const char *unpack_u32(uint32_t *data, const char *buffer)
 	return buffer + sizeof(*data);
 }
 
-void pack_open_req(void *buf);
-void pack_open_rsp(int size, void *buf);
-int unpack_open_rsp(char *buf, int *fd);
-void pack_close_req(void *buf);
-void pack_close_rsp(int fd, void *buf);
-int unpack_close_rsp(char *buf, int *ret);
+void pack_open_req(struct rpmem_req *req);
+void pack_open_rsp(int size, struct rpmem_rsp *rsp);
+int unpack_open_rsp(struct rpmem_rsp *rsp, int *size);
+void pack_close_req(struct rpmem_req *req);
+void pack_close_rsp(int ret, struct rpmem_rsp *rsp);
+int unpack_close_rsp(struct rpmem_rsp *rsp, int *ret);
 
 #endif /* RPMEM_PROTOCOL_H */

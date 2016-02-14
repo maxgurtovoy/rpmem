@@ -57,20 +57,20 @@ int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port)
         return ret;
 }
 
-int rpmem_post_send(struct rpmem_conn *conn) {
+int rpmem_post_send(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_mr *mr) {
 
 	int ret;
 	struct ibv_send_wr send_wr;
 	struct ibv_send_wr *send_wr_failed;
 	struct ibv_sge sge;
 
-	sge.addr   = (uintptr_t)conn->send_buf;
-	sge.length = MAX_BUF_SIZE;
-	sge.lkey   = conn->send_mr->lkey;
+	sge.addr   = (uintptr_t)cmd;
+	sge.length = RPMEM_CMD_SIZE;
+	sge.lkey   = mr->lkey;
 
 	memset(&send_wr, 0, sizeof(send_wr));
 	send_wr.next       = NULL;
-	send_wr.wr_id      = (uintptr_t)conn->send_buf;
+	send_wr.wr_id      = (uintptr_t)cmd;
 	send_wr.sg_list    = &sge;
 	send_wr.num_sge    = 1;
 	send_wr.opcode     = IBV_WR_SEND;
@@ -85,20 +85,20 @@ int rpmem_post_send(struct rpmem_conn *conn) {
 	return 0;
 }
 
-int rpmem_post_recv(struct rpmem_conn *conn) {
+int rpmem_post_recv(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_mr *mr) {
 
 	struct ibv_recv_wr recv_wr;
 	struct ibv_recv_wr *recv_wr_failed;
 	struct ibv_sge sge;
 	int ret;
 
-	memset(conn->recv_buf, 0, MAX_BUF_SIZE);
-	sge.addr   = (uintptr_t)conn->recv_buf;
-	sge.length = MAX_BUF_SIZE;
-	sge.lkey   = conn->recv_mr->lkey;
+	memset(cmd, 0, RPMEM_CMD_SIZE);
+	sge.addr   = (uintptr_t)cmd;
+	sge.length = RPMEM_CMD_SIZE;
+	sge.lkey   = mr->lkey;
 
 	memset(&recv_wr, 0, sizeof(recv_wr));
-	recv_wr.wr_id   = (uintptr_t)conn->recv_buf;
+	recv_wr.wr_id   = (uintptr_t)cmd;
 	recv_wr.sg_list = &sge;
 	recv_wr.num_sge = 1;
 	recv_wr.next = NULL;

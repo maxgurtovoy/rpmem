@@ -69,16 +69,17 @@ struct rpmem_conn {
 
 	pthread_t	                cqthread;
 
-	struct ibv_mr			*recv_mr;
-	struct ibv_mr			*send_mr;
-	char				recv_buf[MAX_BUF_SIZE];
-	char				send_buf[MAX_BUF_SIZE];
+	struct ibv_mr			*req_mr;
+	struct ibv_mr			*rsp_mr;
+
+	struct rpmem_req		req;
+	struct rpmem_rsp		rsp;
 
 };
 
 int get_addr(char *dst_addr, struct sockaddr *addr, uint16_t port);
 
-int rpmem_post_recv(struct rpmem_conn *conn);
-int rpmem_post_send(struct rpmem_conn *conn);
+int rpmem_post_recv(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_mr *mr);
+int rpmem_post_send(struct rpmem_conn *conn, struct rpmem_cmd *cmd, struct ibv_mr *mr);
 
 #endif /* RPMEM_COMMON_H */

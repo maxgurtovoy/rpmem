@@ -133,16 +133,16 @@ static int rpmem_handle_open(struct rpmem_conn *conn,
 
 	size = unit->server->free_size;
 
-	err = rpmem_post_recv(conn);
+	err = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
 	if (err) {
 		perror("rpmem_post_recv");
 		ret = -1;
 		goto out;
 	}
 out:
-	pack_open_rsp(size, conn->send_buf);
+	pack_open_rsp(size, &conn->rsp);
 
-	err = rpmem_post_send(conn);
+	err = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
 	if (err) {
 		perror("rpmem_post_send");
 		ret = -1;
@@ -160,9 +160,9 @@ static int rpmem_handle_close(struct rpmem_conn *conn,
 
 	printf("conn %p: got close request\n", conn);
 
-	pack_close_rsp(ret, conn->send_buf);
+	pack_close_rsp(ret, &conn->rsp);
 
-	ret = rpmem_post_send(conn);
+	ret = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
 	if (ret) {
 		perror("rpmem_post_send");
 		ret = -1;
@@ -174,7 +174,7 @@ static int rpmem_handle_close(struct rpmem_conn *conn,
 int
 rpmem_rcv_completion(struct rpmem_conn *conn)
 {
-	char			*buffer = (char *)conn->recv_buf;
+	char			*buffer = (char *)&conn->req;
 	char			*cmd_data;
 	struct rpmem_req	req;
 
@@ -301,19 +301,19 @@ static int rpmem_conn_init(struct rpmem_conn *conn)
 		goto error;
         }
 
-	conn->recv_mr = ibv_reg_mr(conn->pd,
-				   conn->recv_buf,
-				   MAX_BUF_SIZE,
-				   IBV_ACCESS_LOCAL_WRITE);
-	if (!conn->recv_mr) {
+	conn->req_mr = ibv_reg_mr(conn->pd,
+				  &conn->req,
+				  RPMEM_CMD_SIZE,
+				  IBV_ACCESS_LOCAL_WRITE);
+	if (!conn->req_mr) {
 		perror("recv ibv_reg_mr");
 		goto pd_error;
 	}
-	conn->send_mr = ibv_reg_mr(conn->pd,
-				   conn->send_buf,
-				   MAX_BUF_SIZE,
-				   IBV_ACCESS_LOCAL_WRITE);
-	if (!conn->send_mr) {
+	conn->rsp_mr = ibv_reg_mr(conn->pd,
+				  &conn->rsp,
+				  RPMEM_CMD_SIZE,
+				  IBV_ACCESS_LOCAL_WRITE);
+	if (!conn->rsp_mr) {
 		perror("send ibv_reg_mr");
 		goto recv_mr_error;
 	}
@@ -352,9 +352,9 @@ cq_error:
 comp_error:
 	ibv_destroy_comp_channel(conn->comp_channel);
 send_mr_error:
-	ibv_dereg_mr(conn->send_mr);
+	ibv_dereg_mr(conn->rsp_mr);
 recv_mr_error:
-	ibv_dereg_mr(conn->recv_mr);
+	ibv_dereg_mr(conn->req_mr);
 pd_error:
         ibv_dealloc_pd(conn->pd);
 error:
@@ -429,7 +429,7 @@ static void rpmem_connect_request_handler(struct rdma_cm_event *ev)
 	/*
 	 * Post incoming buffer.
 	 */
-	err = rpmem_post_recv(conn);
+	err = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
 	if (err) {
 		perror("rpmem_post_recv");
 		goto free_conn;

@@ -143,19 +143,19 @@ static int rpmem_addr_handler(struct rdma_cm_id *cma_id)
 		perror("ibv_alloc_pd");
 		goto error;
 	}
-	conn->recv_mr = ibv_reg_mr(conn->pd,
-				   conn->recv_buf,
-				   MAX_BUF_SIZE,
-				   IBV_ACCESS_LOCAL_WRITE);
-	if (!conn->recv_mr) {
+	conn->rsp_mr = ibv_reg_mr(conn->pd,
+				  &conn->rsp,
+				  RPMEM_CMD_SIZE,
+				  IBV_ACCESS_LOCAL_WRITE);
+	if (!conn->rsp_mr) {
 		perror("recv ibv_reg_mr");
 		goto pd_error;
 	}
-	conn->send_mr = ibv_reg_mr(conn->pd,
-				   conn->send_buf,
-				   MAX_BUF_SIZE,
-				   IBV_ACCESS_LOCAL_WRITE);
-	if (!conn->send_mr) {
+	conn->req_mr = ibv_reg_mr(conn->pd,
+				  &conn->req,
+				  RPMEM_CMD_SIZE,
+				  IBV_ACCESS_LOCAL_WRITE);
+	if (!conn->req_mr) {
 		perror("send ibv_reg_mr");
 		goto recv_mr_error;
 	}
@@ -201,9 +201,9 @@ cq_error:
 comp_error:
 	ibv_destroy_comp_channel(conn->comp_channel);
 send_mr_error:
-	ibv_dereg_mr(conn->send_mr);
+	ibv_dereg_mr(conn->req_mr);
 recv_mr_error:
-	ibv_dereg_mr(conn->recv_mr);
+	ibv_dereg_mr(conn->rsp_mr);
 pd_error:
         ibv_dealloc_pd(conn->pd);
 error:
@@ -380,15 +380,15 @@ rpmem_open(struct sockaddr *dst_addr)
 	pthread_mutex_unlock(&priv_rfile->state_mutex);
 
 	/* RDMA connection established - need to send OPEN request */
-	ret = rpmem_post_recv(conn);
+	ret = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
 	if (ret) {
 		perror("rpmem_post_recv");
 		goto destroy_thread;
 	}
 
-	pack_open_req(conn->send_buf);
+	pack_open_req(&conn->req);
 
-	ret = rpmem_post_send(conn);
+	ret = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
 	if (ret) {
 		perror("rpmem_post_send");
 		goto destroy_thread;
@@ -398,7 +398,7 @@ rpmem_open(struct sockaddr *dst_addr)
 	sem_wait(&priv_rfile->sem_command);
 	printf("after sem_wait_command OPEN\n");
 
-	ret = unpack_open_rsp(conn->recv_buf, &rfile->size);
+	ret = unpack_open_rsp(&conn->rsp, &rfile->size);
         if (ret) {
 		perror("unpack_open_rsp");
 		goto destroy_thread;
@@ -440,15 +440,15 @@ int rpmem_close(struct rpmem_file *rfile)
                      entry);
 	pthread_mutex_unlock(&file_list_mutex);
 
-	ret = rpmem_post_recv(conn);
+	ret = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
 	if (ret) {
 		perror("rpmem_post_recv");
 		goto out;
 	}
 
-	pack_close_req(conn->send_buf);
+	pack_close_req(&conn->req);
 
-	ret = rpmem_post_send(conn);
+	ret = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
 	if (ret) {
 		perror("rpmem_post_send");
 		goto out;
@@ -458,7 +458,7 @@ int rpmem_close(struct rpmem_file *rfile)
 	sem_wait(&priv_rfile->sem_command);
 	printf("after sem_wait_command CLOSE\n");
 
-	ret = unpack_close_rsp(conn->recv_buf, &close_ret);
+	ret = unpack_close_rsp(&conn->rsp, &close_ret);
         if (ret) {
 		perror("unpack_close_rsp");
 		goto out;

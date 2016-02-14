@@ -35,46 +35,39 @@
 /*---------------------------------------------------------------------------*/
 /* pack_open_req				                             */
 /*---------------------------------------------------------------------------*/
-void pack_open_req(void *buf)
+void pack_open_req(struct rpmem_req *req)
 {
-	char *buffer = (char *)buf;
-	struct rpmem_req req = { RPMEM_OPEN_REQ, 0 };
+	struct rpmem_open_req *open_req = (struct rpmem_open_req *)req;
 
-	pack_u32(&req.opcode, buffer);
+	open_req->opcode = htonl(RPMEM_OPEN_REQ);
 
 }
 
 /*---------------------------------------------------------------------------*/
 /* pack_open_rsp				                             */
 /*---------------------------------------------------------------------------*/
-void pack_open_rsp(int size, void *buf)
+void pack_open_rsp(int size, struct rpmem_rsp *rsp)
 {
-	char *buffer = (char *)buf;
-	struct rpmem_rsp rsp = { RPMEM_OPEN_RSP, 0 };
+	struct rpmem_open_rsp *open_rsp = (struct rpmem_open_rsp *)rsp;
 
-	pack_u32((uint32_t *)&size,
-	pack_u32(&rsp.opcode,
-		 buffer));
-
+	open_rsp->opcode = htonl(RPMEM_OPEN_RSP);
+	open_rsp->size = htonl(size);
 
 }
 
 /*---------------------------------------------------------------------------*/
 /* unpack_open_rsp                                                           */
 /*---------------------------------------------------------------------------*/
-int unpack_open_rsp(char *buf, int *size)
+int unpack_open_rsp(struct rpmem_rsp *rsp, int *size)
 {
-	char *buffer = (char *)buf;
-	struct rpmem_rsp rsp;
+	struct rpmem_open_rsp *open_rsp = (struct rpmem_open_rsp *)rsp;
 
-	unpack_u32((uint32_t *)size,
-	unpack_u32(&rsp.opcode,
-                   buffer));
-
-	if (rsp.opcode != RPMEM_OPEN_RSP) {
-		printf("got %d opcode\n", rsp.opcode);
+	if (ntohl(open_rsp->opcode) != RPMEM_OPEN_RSP) {
+		printf("got %d opcode\n", (int)ntohl(open_rsp->opcode));
                 return -EINVAL;
 	}
+
+	*size = ntohl(open_rsp->size);
 
 	return 0;
 }
@@ -82,45 +75,39 @@ int unpack_open_rsp(char *buf, int *size)
 /*---------------------------------------------------------------------------*/
 /* pack_close_req                                                            */
 /*---------------------------------------------------------------------------*/
-void pack_close_req(void *buf)
+void pack_close_req(struct rpmem_req *req)
 {
-        char            *buffer = buf;
-        struct rpmem_req req = { RPMEM_CLOSE_REQ, 0 };
+	struct rpmem_close_req *close_req = (struct rpmem_close_req *)req;
 
-        pack_u32(&req.opcode, buffer);
+	close_req->opcode = htonl(RPMEM_CLOSE_REQ);
 
 }
 
 /*---------------------------------------------------------------------------*/
 /* pack_close_rsp                                                            */
 /*---------------------------------------------------------------------------*/
-void pack_close_rsp(int ret, void *buf)
+void pack_close_rsp(int ret, struct rpmem_rsp *rsp)
 {
-        char            *buffer = buf;
-        struct rpmem_rsp rsp = { RPMEM_CLOSE_RSP, 0 };
+	struct rpmem_close_rsp *close_rsp = (struct rpmem_close_rsp *)rsp;
 
-        pack_u32((uint32_t *)&ret,
-        pack_u32(&rsp.opcode,
-                 buffer));
+	close_rsp->opcode = htonl(RPMEM_CLOSE_RSP);
+	close_rsp->ret = htonl(ret);
 
 }
 
 /*---------------------------------------------------------------------------*/
 /* unpack_close_rsp                                                          */
 /*---------------------------------------------------------------------------*/
-int unpack_close_rsp(char *buf, int *ret)
+int unpack_close_rsp(struct rpmem_rsp *rsp, int *ret)
 {
-	char *buffer = (char *)buf;
-	struct rpmem_rsp rsp;
+	struct rpmem_close_rsp *close_rsp = (struct rpmem_close_rsp *)rsp;
 
-	unpack_u32((uint32_t *)ret,
-	unpack_u32(&rsp.opcode,
-                   buffer));
-
-	if (rsp.opcode != RPMEM_CLOSE_RSP) {
-		printf("got %d opcode\n", rsp.opcode);
+	if (ntohl(close_rsp->opcode) != RPMEM_CLOSE_RSP) {
+		printf("got %d opcode\n", (int)ntohl(close_rsp->opcode));
                 return -EINVAL;
 	}
+
+	*ret = ntohl(close_rsp->ret);
 
 	return 0;
 }
