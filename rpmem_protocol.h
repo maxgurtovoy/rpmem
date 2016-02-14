@@ -90,30 +90,6 @@ struct rpmem_close_rsp {
 	uint8_t  reserved[40];
 };
 
-static inline char *pack_mem(const void *data, const size_t size, char *buffer)
-{
-	memcpy(buffer, data, size);
-	return buffer + size;
-}
-
-static inline const char *unpack_mem(void *data, const size_t size,
-				     const char *buffer)
-{
-	memcpy(data, buffer, size);
-	return buffer + size;
-}
-
-static inline char *pack_u32(const uint32_t *data, char *buffer)
-{
-	*((uint32_t *)buffer) = htonl(*data);
-	return buffer + sizeof(*data);
-}
-
-static inline const char *unpack_u32(uint32_t *data, const char *buffer)
-{
-	*data = ntohl(*((uint32_t *)buffer));
-	return buffer + sizeof(*data);
-}
 
 void pack_open_req(struct rpmem_req *req);
 void pack_open_rsp(int size, struct rpmem_rsp *rsp);

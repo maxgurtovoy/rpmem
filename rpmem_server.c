@@ -121,9 +121,7 @@ static int rpmem_bind_server(struct rpmem_server *server, struct inargs *in)
 	return 0;
 }
 
-static int rpmem_handle_open(struct rpmem_conn *conn,
-			     struct rpmem_req *req,
-			     char *cmd_data)
+static int rpmem_handle_open(struct rpmem_conn *conn)
 {
 	struct rpmem_server_unit *unit = container_of(conn, struct rpmem_server_unit, conn);
 	int size;
@@ -152,9 +150,7 @@ out:
 
 }
 
-static int rpmem_handle_close(struct rpmem_conn *conn,
-			      struct rpmem_req *req,
-			      char *cmd_data)
+static int rpmem_handle_close(struct rpmem_conn *conn)
 {
 	int ret = 0;
 
@@ -174,26 +170,22 @@ static int rpmem_handle_close(struct rpmem_conn *conn,
 int
 rpmem_rcv_completion(struct rpmem_conn *conn)
 {
-	char			*buffer = (char *)&conn->req;
-	char			*cmd_data;
-	struct rpmem_req	req;
+	int opcode = ntohl(conn->req.opcode);
 
-	printf("conn %p rpmem_rcv_completion\n", conn);
+	printf("conn %p rpmem_rcv_completion %d opcode\n", conn, opcode);
 
-	cmd_data = (char *)unpack_u32((uint32_t *)&req.opcode,
-				    buffer);
 
-	switch (req.opcode) {
+	switch (opcode) {
 	case RPMEM_OPEN_REQ:
-		rpmem_handle_open(conn, &req, cmd_data);
+		rpmem_handle_open(conn);
 		break;
 	case RPMEM_CLOSE_REQ:
-		rpmem_handle_close(conn, &req, cmd_data);
+		rpmem_handle_close(conn);
 		break;
 	default:
 		printf("conn %p unknown request %d\n",
 			conn,
-			req.opcode);
+			opcode);
 		break;
 	};
 	return 0;
