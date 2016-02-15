@@ -538,7 +538,7 @@ rpmem_map(struct rpmem_file *rfile, size_t len)
 
 	ret = unpack_map_rsp(&conn->rsp, &priv_rfile->priv_mr.rkey, &priv_rfile->priv_mr.remote_addr);
         if (ret) {
-		perror("unpack_close_rsp");
+		perror("unpack_map_rsp");
 		goto destroy_mr;
 	}
 
@@ -553,7 +553,7 @@ rpmem_map(struct rpmem_file *rfile, size_t len)
 				   rmr->len);
 	if (ret) {
 		perror("rpmem_post_rdma_read");
-		goto destroy_mr;
+		goto destroy_rkey;
 	}
 
 	printf("before sem_wait_command RDMA_READ\n");
@@ -562,6 +562,9 @@ rpmem_map(struct rpmem_file *rfile, size_t len)
 
 	return rmr;
 
+destroy_rkey:
+	priv_rfile->priv_mr.rkey = 0;
+	priv_rfile->priv_mr.remote_addr = 0;
 destroy_mr:
 	ibv_dereg_mr(priv_rfile->priv_mr.mr);
 destroy_addr:
@@ -570,4 +573,50 @@ out:
 	rmr->len = 0;
 
 	return NULL;
+}
+
+int
+rpmem_unmap(struct rpmem_mr *rmr)
+{
+	struct priv_rpmem_mr *priv_mr = container_of(rmr, struct priv_rpmem_mr, rmr);
+	struct priv_rpmem_file *priv_rfile = container_of(priv_mr, struct priv_rpmem_file, priv_mr);
+	struct rpmem_conn *conn = &priv_rfile->conn;
+	int unmap_ret;
+	int ret = 0;
+
+	ret = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
+	if (ret) {
+		perror("rpmem_post_recv");
+		goto destroy_mr;
+	}
+
+	pack_unmap_req(&conn->req, rmr->len, priv_mr->remote_addr);
+
+	ret = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
+	if (ret) {
+		perror("rpmem_post_send");
+		goto destroy_mr;
+	}
+
+	printf("before sem_wait_command UNMAP\n");
+	sem_wait(&priv_rfile->sem_command);
+	printf("after sem_wait_command UNMAP\n");
+
+	ret = unpack_unmap_rsp(&conn->rsp, &unmap_ret);
+        if (ret) {
+		perror("unpack_unmap_rsp");
+		goto destroy_mr;
+	}
+
+	printf("got unmap_ret %d\n", unmap_ret);
+	ret = unmap_ret;
+destroy_mr:
+	ibv_dereg_mr(priv_mr->mr);
+	priv_mr->rkey = 0;
+	priv_mr->remote_addr = 0;
+	free(rmr->addr);
+	rmr->len = 0;
+
+	return ret;
+
 }

@@ -57,14 +57,14 @@ struct inargs {
  * resource struct.
  */
 struct rpmem_resource {
-	int 				fd;
-	struct stat64                   stbuf;
+	int				fd;
+	struct stat64			stbuf;
 	char				*name;
-	struct ibv_mr			*mr;
-	void				*addr;
-	int				map_len;
+	struct ibv_mr			*mr; // mapped buffer mr
+	void				*addr; // mapped buffer
+	int				map_len; // mapped len
 
-	SLIST_ENTRY(rpmem_resource)		entry;
+	SLIST_ENTRY(rpmem_resource)	entry;
 };
 
 /*
@@ -177,7 +177,7 @@ static int rpmem_handle_map(struct rpmem_conn *conn)
 	struct rpmem_server_unit *unit = container_of(conn, struct rpmem_server_unit, conn);
 	struct rpmem_server *server = unit->server;
 	struct rpmem_map_req *req = (struct rpmem_map_req *)&conn->req;
-	struct rpmem_resource *res;
+	struct rpmem_resource *res, *tmp_res;
 	void *addr;
 	uint32_t rkey;
 	int len;
@@ -196,13 +196,17 @@ static int rpmem_handle_map(struct rpmem_conn *conn)
 	}
 
 	pthread_spin_lock(&server->res_lock);
-	SLIST_FOREACH(res, &server->res_list, entry) {
+	SLIST_FOREACH_SAFE(res, &server->res_list, entry, tmp_res) {
 		printf("resource %p fd %d size %d name %s\n", res, res->fd, (int)res->stbuf.st_size, res->name);
 		if (len < (int)res->stbuf.st_size) {
 			printf("found suitable space in fd %d\n", res->fd);
 			unit->res = res;
 			server->free_size -= (int)(res->stbuf.st_size);
 			server->in_use_size += (int)(res->stbuf.st_size);
+			SLIST_REMOVE(&server->res_list,
+				     res,
+				     rpmem_resource,
+				     entry);
 			break;
 		}
 	}
@@ -255,6 +259,60 @@ out:
 
 }
 
+static int rpmem_handle_unmap(struct rpmem_conn *conn)
+{
+	struct rpmem_server_unit *unit = container_of(conn, struct rpmem_server_unit, conn);
+	struct rpmem_server *server = unit->server;
+	struct rpmem_unmap_req *req = (struct rpmem_unmap_req *)&conn->req;
+	struct rpmem_resource *res = unit->res;
+	uint64_t addr;
+	int len;
+	int err, ret = 0;
+
+	len = ntohl(req->len);
+	addr = be64toh(req->remote_addr);
+
+	printf("conn %p got unmap req %d addr %lld\n", conn, len, (long long int)addr);
+
+	err = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
+	if (err) {
+		perror("rpmem_post_recv");
+		ret = -1;
+		goto out;
+	}
+
+	/* initialize all dynamic stuff */
+	ibv_dereg_mr(res->mr);
+	res->map_len = 0;
+	res->addr = 0;
+
+	ret = munmap((void *)addr, len);
+	if (ret) {
+		perror("munmap");
+		goto out;
+	}
+
+
+	pthread_spin_lock(&server->res_lock);
+	SLIST_INSERT_HEAD(&server->res_list, res, entry);
+	printf("resource %p fd %d size %d name %s is BACK to the pool\n", res, res->fd, (int)res->stbuf.st_size, res->name);
+	unit->res = NULL;
+	server->free_size += (int)(res->stbuf.st_size);
+	server->in_use_size -= (int)(res->stbuf.st_size);
+	pthread_spin_unlock(&server->res_lock);
+
+out:
+	pack_unmap_rsp(&conn->rsp, ret);
+
+	err = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
+	if (err) {
+		perror("rpmem_post_send");
+		ret = -1;
+	}
+
+	return ret;
+
+}
 
 int
 rpmem_rcv_completion(struct rpmem_conn *conn)
@@ -273,6 +331,9 @@ rpmem_rcv_completion(struct rpmem_conn *conn)
 		break;
 	case RPMEM_MAP_REQ:
 		rpmem_handle_map(conn);
+		break;
+	case RPMEM_UNMAP_REQ:
+		rpmem_handle_unmap(conn);
 		break;
 	default:
 		printf("conn %p unknown request %d\n",
@@ -626,7 +687,6 @@ static void usage(const char *argv0)
 
 static int process_inargs(int argc, char *argv[], struct inargs *in)
 {
-        int err;
         struct option long_options[] = {
                 { .name = "addr",      .has_arg = 1, .val = 'a' },
                 { .name = "port",      .has_arg = 1, .val = 'p' },

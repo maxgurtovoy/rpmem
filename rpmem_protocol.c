@@ -154,3 +154,45 @@ int unpack_map_rsp(struct rpmem_rsp *rsp, uint32_t *rkey, uint64_t *remote_addr)
 
 	return 0;
 }
+
+/*---------------------------------------------------------------------------*/
+/* pack_unmap_req 				                             */
+/*---------------------------------------------------------------------------*/
+void pack_unmap_req(struct rpmem_req *req, int len, uint64_t remote_addr)
+{
+	struct rpmem_unmap_req *unmap_req = (struct rpmem_unmap_req *)req;
+
+	unmap_req->opcode = htonl(RPMEM_UNMAP_REQ);
+	unmap_req->len = htonl(len);
+	unmap_req->remote_addr = htobe64(remote_addr);
+
+}
+
+/*---------------------------------------------------------------------------*/
+/* pack_unmap_rsp                                                            */
+/*---------------------------------------------------------------------------*/
+void pack_unmap_rsp(struct rpmem_rsp *rsp, int ret)
+{
+	struct rpmem_unmap_rsp *unmap_rsp = (struct rpmem_unmap_rsp *)rsp;
+
+	unmap_rsp->opcode = htonl(RPMEM_UNMAP_RSP);
+	unmap_rsp->ret = htonl(ret);
+
+}
+
+/*---------------------------------------------------------------------------*/
+/* unpack_unmap_rsp                                                          */
+/*---------------------------------------------------------------------------*/
+int unpack_unmap_rsp(struct rpmem_rsp *rsp, int *ret)
+{
+	struct rpmem_unmap_rsp *unmap_rsp = (struct rpmem_unmap_rsp *)rsp;
+
+	if (ntohl(unmap_rsp->opcode) != RPMEM_UNMAP_RSP) {
+		printf("got %d opcode\n", (int)ntohl(unmap_rsp->opcode));
+                return -EINVAL;
+	}
+
+	*ret = ntohl(unmap_rsp->ret);
+
+	return 0;
+}

@@ -98,20 +98,23 @@ struct rpmem_comp {
 };
 */
 
-struct rpmem_file *
+struct rpmem_file*
 rpmem_open(struct sockaddr *dst_addr);
 
-struct rpmem_mr *
+int
+rpmem_close(struct rpmem_file *);
+
+struct rpmem_mr*
 rpmem_map(struct rpmem_file *file, size_t len);
 
-void
+int
 rpmem_unmap(struct rpmem_mr *mr);
 
+/*
 struct rpmem_mr *
 rpmem_map_shadow(struct rpmem_file *file,
 		 off_t offset, void *addr, size_t len);
-
-int rpmem_close(struct rpmem_file *);
+*/
 
 /* blocking */
 int rpmem_flush_sync(struct rpmem_mr *mr, struct rpmem_sge *sges, int nr_sges);
