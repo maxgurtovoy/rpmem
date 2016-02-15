@@ -314,6 +314,44 @@ out:
 
 }
 
+static int rpmem_handle_commit(struct rpmem_conn *conn)
+{
+	struct rpmem_commit_req *req = (struct rpmem_commit_req *)&conn->req;
+	uint64_t addr;
+	int len;
+	int err, ret = 0;
+
+	len = ntohl(req->len);
+	addr = be64toh(req->remote_addr);
+
+	printf("conn %p got commit req %d addr %lld\n", conn, len, (long long int)addr);
+
+	err = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
+	if (err) {
+		perror("rpmem_post_recv");
+		ret = -1;
+		goto out;
+	}
+
+	ret = msync((void *)addr, len, MS_SYNC);
+	if (ret) {
+		perror("msync");
+		goto out;
+	}
+
+out:
+	pack_commit_rsp(&conn->rsp, ret);
+
+	err = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
+	if (err) {
+		perror("rpmem_post_send");
+		ret = -1;
+	}
+
+	return ret;
+
+}
+
 int
 rpmem_rcv_completion(struct rpmem_conn *conn)
 {
@@ -334,6 +372,9 @@ rpmem_rcv_completion(struct rpmem_conn *conn)
 		break;
 	case RPMEM_UNMAP_REQ:
 		rpmem_handle_unmap(conn);
+		break;
+	case RPMEM_COMMIT_REQ:
+		rpmem_handle_commit(conn);
 		break;
 	default:
 		printf("conn %p unknown request %d\n",

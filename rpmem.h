@@ -110,6 +110,9 @@ rpmem_map(struct rpmem_file *file, size_t len);
 int
 rpmem_unmap(struct rpmem_mr *mr);
 
+int
+rpmem_commit(struct rpmem_mr *mr);
+
 /*
 struct rpmem_mr *
 rpmem_map_shadow(struct rpmem_file *file,
@@ -117,7 +120,7 @@ rpmem_map_shadow(struct rpmem_file *file,
 */
 
 /* blocking */
-int rpmem_flush_sync(struct rpmem_mr *mr, struct rpmem_sge *sges, int nr_sges);
+//int rpmem_flush_sync(struct rpmem_mr *mr, struct rpmem_sge *sges, int nr_sges);
 
 /* non-blocking */
 /*
@@ -125,10 +128,10 @@ int rpmem_flush_async(struct rpmem_sge *sges, int nr_sges,
 		      struct rpmem_comp *comp);
 */
 /* drains rdma all completions on mr */
-int rpmem_drain(struct rpmem_mr *mr);
+//int rpmem_drain(struct rpmem_mr *mr);
 
 /* flush async and drain all rpmems */
-int rpmem_persist_sync(struct rpmem_sge *sges, int nr_sges);
+//int rpmem_persist_sync(struct rpmem_sge *sges, int nr_sges);
 
 /* flush async and drain all rpmems */
 /*

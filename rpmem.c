@@ -57,6 +57,8 @@ static void rpmem_handle_wc(struct ibv_wc *wc,
 		} else if (wc->opcode == IBV_WC_RDMA_READ) {
 			printf("conn %p got rdma_read %d wc %p\n", conn, wc->opcode, wc);
 			sem_post(&priv_rfile->sem_command);
+		} else if (wc->opcode == IBV_WC_RDMA_WRITE) {
+			printf("conn %p got rdma_write %d wc %p\n", conn, wc->opcode, wc);
 		} else {
 			printf("conn %p got unknown opcode %d wc %p\n", conn, wc->opcode, wc);
 		}
@@ -67,7 +69,6 @@ static void rpmem_handle_wc(struct ibv_wc *wc,
 			printf("conn %p got err_comp %p wc\n", conn, wc);
 		}
 	}
-
 }
 
 static int cq_event_handler(struct priv_rpmem_file *priv_rfile)
@@ -545,12 +546,13 @@ rpmem_map(struct rpmem_file *rfile, size_t len)
 	printf("conn %p after receiving map rsp. rkey %d addr %lld\n", conn, (int)priv_rfile->priv_mr.rkey,
 		(long long int)priv_rfile->priv_mr.remote_addr);
 
-	ret = rpmem_post_rdma_read(conn,
-				   priv_rfile->priv_mr.rkey,
-				   priv_rfile->priv_mr.mr->lkey,
-				   priv_rfile->priv_mr.remote_addr,
-				   rmr->addr,
-				   rmr->len);
+	ret = rpmem_post_rdma_wr(conn,
+				 priv_rfile->priv_mr.rkey,
+				 priv_rfile->priv_mr.mr->lkey,
+				 priv_rfile->priv_mr.remote_addr,
+				 rmr->addr,
+				 rmr->len,
+				 IBV_WR_RDMA_READ);
 	if (ret) {
 		perror("rpmem_post_rdma_read");
 		goto destroy_rkey;
@@ -617,6 +619,61 @@ destroy_mr:
 	free(rmr->addr);
 	rmr->len = 0;
 
+	return ret;
+
+}
+
+int
+rpmem_commit(struct rpmem_mr *rmr)
+{
+	struct priv_rpmem_mr *priv_mr = container_of(rmr, struct priv_rpmem_mr, rmr);
+	struct priv_rpmem_file *priv_rfile = container_of(priv_mr, struct priv_rpmem_file, priv_mr);
+	struct rpmem_conn *conn = &priv_rfile->conn;
+	int commit_ret;
+	int ret = 0;
+
+	ret = rpmem_post_recv(conn, (struct rpmem_cmd *)&conn->rsp, conn->rsp_mr);
+	if (ret) {
+		perror("rpmem_post_recv");
+		goto out;
+	}
+	
+	printf("conn %p before rdma write. rkey %d addr %lld\n", conn, (int)priv_rfile->priv_mr.rkey,
+		(long long int)priv_rfile->priv_mr.remote_addr);
+
+	ret = rpmem_post_rdma_wr(conn,
+				 priv_rfile->priv_mr.rkey,
+				 priv_rfile->priv_mr.mr->lkey,
+				 priv_rfile->priv_mr.remote_addr,
+				 rmr->addr,
+				 rmr->len,
+				 IBV_WR_RDMA_WRITE);
+	if (ret) {
+		perror("rpmem_post_rdma_write");
+		goto out;
+	}
+
+	pack_commit_req(&conn->req, rmr->len, priv_mr->remote_addr);
+
+	ret = rpmem_post_send(conn, (struct rpmem_cmd *)&conn->req, conn->req_mr);
+	if (ret) {
+		perror("rpmem_post_send");
+		goto out;
+	}
+
+	printf("before sem_wait_command COMMIT\n");
+	sem_wait(&priv_rfile->sem_command);
+	printf("after sem_wait_command COMMIT\n");
+
+	ret = unpack_commit_rsp(&conn->rsp, &commit_ret);
+        if (ret) {
+		perror("unpack_unmap_rsp");
+		goto out;
+	}
+
+	printf("got commit_ret %d\n", commit_ret);
+	ret = commit_ret;
+out:
 	return ret;
 
 }

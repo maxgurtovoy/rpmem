@@ -51,6 +51,8 @@ enum rpmem_opcode {
         RPMEM_MAP_RSP,
         RPMEM_UNMAP_REQ,
         RPMEM_UNMAP_RSP,
+        RPMEM_COMMIT_REQ,
+        RPMEM_COMMIT_RSP,
 
         RPMEM_CMD_LAST
 };
@@ -89,6 +91,14 @@ struct rpmem_unmap_req {
 	uint8_t  reserved[32];
 };
 
+struct rpmem_commit_req {
+	uint32_t opcode;
+	uint32_t len;
+	uint64_t remote_addr;
+	uint8_t  reserved[32];
+};
+
+
 /* general response structure */
 struct rpmem_rsp {
 	uint32_t opcode;
@@ -120,6 +130,12 @@ struct rpmem_unmap_rsp {
 	uint8_t  reserved[40];
 };
 
+struct rpmem_commit_rsp {
+	uint32_t opcode;
+	uint32_t ret;
+	uint8_t  reserved[40];
+};
+
 
 void pack_open_req(struct rpmem_req *req);
 void pack_open_rsp(int size, struct rpmem_rsp *rsp);
@@ -133,5 +149,8 @@ int unpack_map_rsp(struct rpmem_rsp *rsp, uint32_t *rkey, uint64_t *remote_addr)
 void pack_unmap_req(struct rpmem_req *req, int len, uint64_t remote_addr);
 void pack_unmap_rsp(struct rpmem_rsp *rsp, int ret);
 int unpack_unmap_rsp(struct rpmem_rsp *rsp, int *ret);
+void pack_commit_req(struct rpmem_req *req, int len, uint64_t remote_addr);
+void pack_commit_rsp(struct rpmem_rsp *rsp, int ret);
+int unpack_commit_rsp(struct rpmem_rsp *rsp, int *ret);
 
 #endif /* RPMEM_PROTOCOL_H */

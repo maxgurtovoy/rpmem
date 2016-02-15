@@ -196,3 +196,45 @@ int unpack_unmap_rsp(struct rpmem_rsp *rsp, int *ret)
 
 	return 0;
 }
+
+/*---------------------------------------------------------------------------*/
+/* pack_commit_req 				                             */
+/*---------------------------------------------------------------------------*/
+void pack_commit_req(struct rpmem_req *req, int len, uint64_t remote_addr)
+{
+	struct rpmem_commit_req *commit_req = (struct rpmem_commit_req *)req;
+
+	commit_req->opcode = htonl(RPMEM_COMMIT_REQ);
+	commit_req->len = htonl(len);
+	commit_req->remote_addr = htobe64(remote_addr);
+
+}
+
+/*---------------------------------------------------------------------------*/
+/* pack_commit_rsp                                                           */
+/*---------------------------------------------------------------------------*/
+void pack_commit_rsp(struct rpmem_rsp *rsp, int ret)
+{
+	struct rpmem_commit_rsp *commit_rsp = (struct rpmem_commit_rsp *)rsp;
+
+	commit_rsp->opcode = htonl(RPMEM_COMMIT_RSP);
+	commit_rsp->ret = htonl(ret);
+
+}
+
+/*---------------------------------------------------------------------------*/
+/* unpack_commit_rsp                                                          */
+/*---------------------------------------------------------------------------*/
+int unpack_commit_rsp(struct rpmem_rsp *rsp, int *ret)
+{
+	struct rpmem_commit_rsp *commit_rsp = (struct rpmem_commit_rsp *)rsp;
+
+	if (ntohl(commit_rsp->opcode) != RPMEM_COMMIT_RSP) {
+		printf("got %d opcode\n", (int)ntohl(commit_rsp->opcode));
+                return -EINVAL;
+	}
+
+	*ret = ntohl(commit_rsp->ret);
+
+	return 0;
+}
