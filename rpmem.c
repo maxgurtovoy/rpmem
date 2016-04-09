@@ -85,14 +85,14 @@ static int cq_event_handler(struct priv_rpmem_file *priv_rfile)
 
 		completed += n;
 		if (completed >= 64)
-			break;
+			goto out;
 	}
 
         if (n) {
                 perror("poll error");
                 return -1;
         }
-
+out:
         return 0;
 }
 
