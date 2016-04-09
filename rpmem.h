@@ -115,8 +115,8 @@ rpmem_commit(struct rpmem_mr *mr);
 
 /*
 struct rpmem_mr *
-rpmem_map_shadow(struct rpmem_file *file,
-		 off_t offset, void *addr, size_t len);
+rpmem_map_mirror(struct rpmem_file *file,
+		 void *addr, size_t len);
 */
 
 /* blocking */
