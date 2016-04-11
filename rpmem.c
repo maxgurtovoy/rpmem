@@ -32,6 +32,7 @@
 
 
 #include "rpmem.h"
+#include "rpmem_log.h"
 
 /*---------------------------------------------------------------------------*/
 /* globals								     */
@@ -41,13 +42,14 @@ static SLIST_HEAD(, rpmem_conn) file_list =
 
 pthread_mutex_t file_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+enum rpmem_log_level rpmem_logging_level = RPMEM_LOG_LEVEL_DEBUG;
+
 static void rpmem_handle_wc(struct ibv_wc *wc,
 			    struct priv_rpmem_file *priv_rfile)
 {
 	struct rpmem_conn *conn = &priv_rfile->conn;
 
-	printf("file %p conn %p handle opcode %d status %d wc %p\n",
-		priv_rfile, conn, wc->opcode, wc->status, wc);
+	DEBUG_LOG("conn %p handle opcode %d status %d wc %p\n", conn, wc->opcode, wc->status, wc);
 
 	if (wc->status == IBV_WC_SUCCESS) {
 		if (wc->opcode == IBV_WC_RECV) {

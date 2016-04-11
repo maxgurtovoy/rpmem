@@ -45,7 +45,9 @@
 #include <linux/fs.h>
 
 #include "rpmem_common.h"
+#include "rpmem_log.h"
 
+enum rpmem_log_level rpmem_logging_level = RPMEM_LOG_LEVEL_ERROR;
 
 struct inargs {
         char     *server_addr;
@@ -397,7 +399,7 @@ rpmem_snd_completion(struct rpmem_conn *conn)
 static void rpmem_handle_wc(struct ibv_wc *wc,
 			    struct rpmem_conn *conn)
 {
-	printf("conn %p handle opcode %d status %d wc %p\n", conn, wc->opcode, wc->status, wc);
+	DEBUG_LOG("conn %p handle opcode %d status %d wc %p\n", conn, wc->opcode, wc->status, wc);
 
 	if (wc->status == IBV_WC_SUCCESS) {
 		if (wc->opcode == IBV_WC_RECV) {
