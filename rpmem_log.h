@@ -66,8 +66,7 @@ enum rpmem_log_level {
         RPMEM_LOG_LEVEL_LAST
 };
 
-void rpmem_vlog(const char *file, unsigned line, const char *function,
-		unsigned level, const char *fmt, ...);
+void rpmem_vlog(const char *fmt, ...);
 
 extern enum rpmem_log_level rpmem_logging_level;
 
@@ -75,8 +74,7 @@ extern enum rpmem_log_level rpmem_logging_level;
 	do { \
 		if (unlikely(((level) < RPMEM_LOG_LEVEL_LAST) &&  \
 			      (level) <= rpmem_logging_level)) { \
-			rpmem_vlog(__FILE__, __LINE__,__func__, (level), \
-				    fmt, ## __VA_ARGS__); \
+			rpmem_vlog(fmt, ## __VA_ARGS__); \
 		} \
 	} while (0)
 

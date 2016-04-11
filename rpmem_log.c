@@ -41,30 +41,14 @@
 /*---------------------------------------------------------------------------*/
 /* rpmem_vlog								     */
 /*---------------------------------------------------------------------------*/
-void rpmem_vlog(const char *file, unsigned line, const char *function,
-	      unsigned level, const char *fmt, ...)
+void rpmem_vlog(const char *fmt, ...)
 {
 	va_list			args;
-	const char		*short_file;
 	char			buf[2048];
-	char			buf2[256];
-	int			length = 0;
-	static const char * const level_str[] = {
-		"ERROR", "WARN", "INFO", "DEBUG"
-	};
 
 	va_start(args, fmt);
-	length = vsnprintf(buf, sizeof(buf), fmt, args);
+	vsnprintf(buf, sizeof(buf), fmt, args);
+	printf(buf);
 	va_end(args);
-	buf[length] = 0;
-
-	short_file = strrchr(file, '/');
-	short_file = (!short_file) ? file : short_file + 1;
-
-	snprintf(buf2, sizeof(buf2), "%s:%s:%u: ", short_file, function, line);
-
-	fprintf(stderr, buf2, level_str[level], buf);
-
-	fflush(stderr);
 }
 
